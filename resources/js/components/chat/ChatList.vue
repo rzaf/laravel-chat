@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import useChatStore from '@/stores/chat';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
+import MenuIcon from '@/assets/svgs/Menu.svg';
 
 const chatStore = useChatStore();
 
@@ -19,11 +20,7 @@ const emit = defineEmits<{ (e: 'toggleMenu'): void }>();
             class="flex items-center w-full px-2 py-2 border-b border-gray-100 dark:border-gray-600 h-14"
             @submit.prevent
         >
-            <svg class="h-full mr-2 cursor-pointer fill-gray-500" viewBox="0 0 24 24" @click="emit('toggleMenu')">
-                <path
-                    d="M1 12a1 1 0 0 1 1-1h20a1 1 0 1 1 0 2H2a1 1 0 0 1-1-1zM1 4a1 1 0 0 1 1-1h20a1 1 0 1 1 0 2H2a1 1 0 0 1-1-1zM1 20a1 1 0 0 1 1-1h20a1 1 0 1 1 0 2H2a1 1 0 0 1-1-1z"
-                />
-            </svg>
+            <MenuIcon class="h-full mr-2 cursor-pointer fill-gray-500" @click="emit('toggleMenu')" />
             <input
                 type="text"
                 placeholder="search chats ..."

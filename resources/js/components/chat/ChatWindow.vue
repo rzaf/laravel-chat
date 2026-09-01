@@ -10,6 +10,8 @@ import { isDateSeparator, messageSenderId } from '@/types';
 import type { Chat } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
+import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
+import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
 
 const props = defineProps<{ chat: Chat }>();
 
@@ -126,17 +128,9 @@ watch(
 
         <div id="top-profile" class="z-10 flex items-center px-2 py-3 align-middle border-b border-gray-200 h-14">
             <RouterLink to="/">
-                <svg
-                    width="45px"
-                    height="45px"
-                    viewBox="0 0 1024 1024"
-                    class="px-2 py-1 mr-2 cursor-pointer lg:hidden rounded-2xl fill-gray-500 hover:bg-slate-300"
-                >
-                    <path d="M224 480h640a32 32 0 1 1 0 64H224a32 32 0 0 1 0-64z" />
-                    <path
-                        d="m237 512 265 265a32 32 0 0 1-45 45l-288-288a32 32 0 0 1 0-45l288-288a32 32 0 1 1 45 45L237 512z"
-                    />
-                </svg>
+                <BackArrowIcon
+                    class="px-2 py-1 mr-2 cursor-pointer lg:hidden rounded-2xl fill-gray-500 hover:bg-slate-300 w-[45px] h-[45px]"
+                />
             </RouterLink>
 
             <img src="/storage/default-profile.png" alt="profile-image" class="w-10 h-10 mr-3" />
@@ -151,9 +145,7 @@ watch(
             class="absolute flex items-center justify-center w-10 h-10 bg-white rounded-lg shadow-lg cursor-pointer dark:bg-gray-900 left-4 bottom-20"
             @click="scrollToBottom(true)"
         >
-            <svg class="fill-black dark:fill-gray-400" width="32px" height="32px" viewBox="0 0 32 32">
-                <path d="M16 18.63l7.08-7.08L25 13.46l-9 9-9-9 1.92-1.92z" />
-            </svg>
+            <ChevronDownIcon class="fill-black dark:fill-gray-400 w-8 h-8" />
             <p
                 v-show="(chat.unseen_messages_count ?? 0) > 0"
                 class="absolute p-1 text-lg text-white -translate-x-1/2 bg-blue-500 rounded-full left-1/2 bottom-8"

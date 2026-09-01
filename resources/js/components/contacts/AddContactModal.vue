@@ -8,6 +8,8 @@ import type { Contact, User } from '@/types';
 import type { Paginated } from '@/types/api';
 import ContactItem from './ContactItem.vue';
 import { searchUsers as apiSearchUsers, deleteContact as apiDeleteContact, addOrUpdateContact, getContacts } from '@/api';
+import CloseIcon from '@/assets/svgs/Close.svg';
+import SearchIcon from '@/assets/svgs/Search.svg';
 
 
 const emit = defineEmits<{
@@ -140,19 +142,13 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
             <div class="flex flex-row items-start">
                 <h2 class="h-12 px-6 pt-3 text-lg">Add New Contact</h2>
                 <a @click="close" class="ml-auto p-4 cursor-pointer">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                        stroke="currentColor" class="size-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
+                    <CloseIcon class="size-6" />
                 </a>
             </div>
             <div class="flex flex-col h-[calc(100%-3rem)] p-5">
                 <div class="relative flex items-center">
                     <div class="absolute inset-y-0 flex items-center pointer-events-none start-0 ps-3">
-                        <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 20 20">
-                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z" />
-                        </svg>
+                        <SearchIcon class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                     </div>
                     <input type="search" placeholder="Search users ..."
                         class="block w-full h-12 p-4 text-sm text-gray-900 bg-transparent border-b-2 border-gray-300 outline-none ps-10 focus:border-blue-500 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:border-blue-500"
