@@ -1,0 +1,53 @@
+/** Transport-layer shapes: request/response envelopes returned by the API. */
+
+import type { User } from '@/types';
+
+/** Response of `POST /api/login` and `POST /api/register`. */
+export interface AuthResponse {
+    token: string;
+    data: User;
+    message?: string;
+}
+
+/** Laravel `simplePaginate()` envelope. */
+export interface Paginated<T> {
+    current_page: number;
+    data: T[];
+    first_page_url: string;
+    next_page_url: string | null;
+    prev_page_url: string | null;
+    path: string;
+    per_page: number;
+    from: number | null;
+    to: number | null;
+}
+
+/** Shape returned by Reverb/Pusher for `POST /api/broadcasting/auth`. */
+export interface BroadcastAuthResponse {
+    auth: string;
+    channel_data?: string;
+}
+
+/** Laravel validation error body (HTTP 422) or generic message (4xx). */
+export interface ApiErrorBody {
+    message?: string;
+    errors?: Record<string, string[]>;
+}
+
+/** Response of the OAuth redirect endpoint. */
+export interface OAuthRedirectResponse {
+    url: string;
+}
+
+export interface LoginCredentials {
+    login: string;
+    password: string;
+}
+
+export interface RegisterPayload {
+    name: string;
+    username: string;
+    email: string;
+    password: string;
+    password_confirmation: string;
+}

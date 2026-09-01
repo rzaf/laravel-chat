@@ -1,0 +1,134 @@
+services:
+
+  php:
+    build:
+      context: .
+    environment:
+      - APP_ENV=${APP_ENV}
+    working_dir: /var/www
+    volumes:
+      - ./app:/var/www/app
+      - ./bootstrap:/var/www/bootstrap
+      - ./config:/var/www/config
+      - ./database:/var/www/database
+      - ./lang:/var/www/lang
+      - ./Modules:/var/www/Modules
+      - ./public:/var/www/public
+      - ./resources/views:/var/www/resources/views
+      - ./routes:/var/www/routes
+      - ./storage:/var/www/storage
+      - ./vendor:/var/www/vendor
+      - ./.env:/var/www/.env
+      - ./composer.json:/var/www/composer.json
+      - ./composer.lock:/var/www/composer.lock
+    ports:
+      - 8000:8000
+      - 8080:8080
+    depends_on:
+      - database
+
+  node:
+    image: node:24-alpine
+    working_dir: /var/www
+    volumes:
+      - ./node_modules:/var/www/node_modules
+      - ./resources:/var/www/resources
+      - ./public:/var/www/public
+      - ./package-lock.json:/var/www/package-lock.json
+      - ./package.json:/var/www/package.json
+      - ./postcss.config.ts:/var/www/postcss.config.ts
+      - ./.env:/var/www/.env
+      - ./tailwind.config.ts:/var/www/tailwind.config.ts
+      - ./vite.config.ts:/var/www/vite.config.ts
+      - ./tsconfig.json:/var/www/tsconfig.json
+      - ./tsconfig.node.json:/var/www/tsconfig.node.json
+    command: >
+      sh -c "
+      npm install && npm run dev -- --host 0.0.0.0;
+      echo 'Node process stopped. Keeping container alive...';
+      tail -f /dev/null
+      "
+    depends_on:
+      - php
+    ports:
+        - "5173:5173"
+
+
+  mailpit:
+    image: axllent/mailpit:v1.30
+    user: root
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    volumes:
+      - ./.app-data/mailpit/:/data/
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+
+  database:
+    image: mysql:lts
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_DATABASE=${DB_DATABASE}
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./.app-data/database:/var/lib/mysql
+
+
+  # Redis Server
+  redis:
+    image: redis:alpine
+    command: >
+        sh -c 'if [ -n "${REDIS_PASSWORD}" ]; then redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"; else redis-server --appendonly yes; fi'
+    volumes:
+        - ./.app-data/redis:/data
+    ports:
+        - 6379:6379
+
+  # dbgate:
+  #   image: dbgate/dbgate:6.3.0-alpine
+  #   restart: always
+  #   ports:
+  #     - 80:3000
+  #   volumes:
+  #     - ./.app-data/dbgate/:/root/.dbgate
+  #   environment:
+  #     CONNECTIONS: con1
+  #
+  #
+  #     LABEL_con1: Mysql
+  #     SERVER_con1: database
+  #     USER_con1: root
+  #     PASSWORD_con1: ${DB_PASSWORD}
+  #     PORT_con1: 3306
+  #     ENGINE_con1: mysql@dbgate-plugin-mysql
+
+
+  # dbgate Service
+  dbgate:
+    image: dbgate/dbgate:6.3.0-alpine
+    restart: always
+    ports:
+        - 80:3000
+    volumes:
+        - ./.app-data/dbgate/:/root/.dbgate
+    environment:
+        CONNECTIONS: con1,con2
+
+
+        LABEL_con1: Mysql
+        SERVER_con1: database
+        USER_con1: ${DB_USERNAME}
+        PASSWORD_con1: ${DB_PASSWORD}
+        PORT_con1: 3306
+        ENGINE_con1: mysql@dbgate-plugin-mysql
+
+
+        LABEL_con2: Redis
+        SERVER_con2: redis
+        USER_con2:
+        PASSWORD_con2: ${REDIS_PASSWORD}
+        PORT_con2: 6379
+        ENGINE_con2: redis@dbgate-plugin-redis
