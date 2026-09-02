@@ -52,6 +52,7 @@ const hasMessages = computed(() => messages.value.length > 0);
 
 async function openChat(slug: string): Promise<void> {
     console.log('RUNNING openChat in ChatWindow.vue', props.chat)
+    showGoToBottom.value = false;
     await loadInitial(slug);
     await nextTick();
     scrollToBottom();
@@ -124,7 +125,7 @@ watch(
 </script>
 
 <template>
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full min-h-0">
 
         <div id="top-profile" class="z-10 flex items-center px-2 py-3 align-middle border-b border-gray-200 h-14">
             <RouterLink to="/">
@@ -180,7 +181,7 @@ watch(
         <div
             v-else
             ref="listRef"
-            class="w-full flex-1 overflow-y-auto pt-3 bg-gray-200 scrollable dark:bg-gray-800 scroll-smooth"
+            class="w-full flex-1 min-h-0 overflow-y-auto pt-3 bg-gray-200 scrollable dark:bg-gray-800 scroll-smooth"
             @scroll="handleScroll"
         >
             <template v-for="row in rows" :key="row.key">
