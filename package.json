@@ -23,7 +23,9 @@
         "vue-tsc": "^2.2.8"
     },
     "dependencies": {
+        "@emoji-mart/data": "^1.2.1",
         "@vueuse/core": "^14.4.0",
+        "emoji-mart": "^5.6.0",
         "nprogress": "^0.2.0",
         "pinia": "^4.0.2",
         "vite-plugin-vue-devtools": "^8.2.1",

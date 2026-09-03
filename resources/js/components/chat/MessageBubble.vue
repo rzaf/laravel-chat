@@ -9,6 +9,7 @@ import FlagIcon from '@/assets/svgs/Flag.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
 
 defineProps<{
+    id?: number;
     message: string;
     time: string;
     isSent?: boolean;
