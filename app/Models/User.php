@@ -3,6 +3,8 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+
+use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -14,7 +16,7 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasApiTokens;
+    use HasFactory, Notifiable, HasApiTokens, HasMedia;
 
     protected $fillable = [
         'name',
@@ -63,5 +65,13 @@ class User extends Authenticatable
             ->whereHas('chat.members', function ($query) {
                 $query->where('users.id', $this->id);
             });
+    }
+
+
+    public function profilePhoto()
+    {
+        return $this->morphOne(Media::class, 'model')
+            ->where('collection', 'profiles')
+            ->latestOfMany();
     }
 }

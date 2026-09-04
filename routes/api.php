@@ -4,6 +4,7 @@ use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\MediaController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\UsersController;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ Route::get('/user', function (Request $request) {
 Route::post('/auth/redirect/{provider}', [OAuthController::class, 'redirect']);
 Route::post('/auth/callback/{provider}', [OAuthController::class, 'callback']);
 
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post('/register', [AuthController::class, 'register']);
 Route::middleware('auth:sanctum')->group(function() {
     Route::put('/user',[AuthController::class,'update']);
@@ -28,6 +29,9 @@ Route::middleware('auth:sanctum')->group(function() {
 Route::group(['prefix' => 'users', 'middleware' => ['auth:sanctum']], function () {
     Route::get('/search/{search}', [UsersController::class, 'search']);
     Route::get('/{username}', [UsersController::class, 'get']);
+    Route::get('/{username}/profiles/', [UsersController::class, 'getProfiles']);
+    Route::post('profiles/upload', [UsersController::class, 'uploadProfile']);
+    Route::delete('profiles/{id}', [UsersController::class, 'deleteProfile']);
 });
 
 Route::group(['prefix' => 'contacts', 'middleware' => ['auth:sanctum']], function () {
@@ -49,5 +53,10 @@ Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], functio
 Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function () {
     Route::get('/', [ChatController::class, 'index']);
     Route::delete('/{id}', [ChatController::class, 'destroy']);
+});
+
+
+Route::group(['prefix' => 'medias', 'middleware' => ['auth:sanctum']], function () {
+    Route::get('/{id}', [MediaController::class, 'get'])->name('media.get');
 });
 

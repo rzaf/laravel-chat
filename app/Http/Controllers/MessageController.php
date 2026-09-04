@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Events\NewPrivateMessage;
+use App\Http\Resources\MessageResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
 use App\Models\Message;
 use App\Models\User;
+use App\Services\MediaService;
 use Illuminate\Http\Request;
-
+use Illuminate\Support\Facades\DB;
 
 /**
  * @authenticated
@@ -18,6 +20,19 @@ use Illuminate\Http\Request;
  */
 class MessageController extends Controller
 {
+    public static $mimes = [
+        'jpg',
+        'jpeg',
+        'png',
+        'mp3',
+        'mp4',
+        'pdf',
+        'doc',
+        'docx',
+        'txt'
+    ];
+
+
     protected function directChatForUsers(User $userA, User $userB): Chat
     {
         $chatIds = ChatMembers::query()
@@ -82,11 +97,14 @@ class MessageController extends Controller
             return new \Illuminate\Pagination\Paginator([], 20, 1);
         }
 
-        return Message::query()
-            ->where('chat_id', $chat->id)
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->simplePaginate(20);
+        return MessageResource::collection(
+            Message::query()
+                ->with('media')
+                ->where('chat_id', $chat->id)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->simplePaginate(20)
+        );
     }
 
     // public function index(Request $req, string $username)
@@ -110,24 +128,53 @@ class MessageController extends Controller
     //         });
     // }
 
-    public function storeDirectMessage(Request $req, string $username)
+    /**
+     * send message
+     * 
+     * @bodyParam content string optional The message content. Example: message
+     * @bodyParam attachments[0] file optional First file attachment.
+     * @bodyParam attachments[1] file optional Second file attachment.     
+     * 
+     * @response 200 {}
+     */
+    public function storeDirectMessage(Request $req, string $username, MediaService $mediaService)
     {
         $user = User::firstWhere(['username' => $username]);
         abort_if($user == null, 404, 'user not found');
         abort_if($req->user()->username == $username, 400, 'cant message yourself');
 
         $validated = $req->validate([
-            'content' => 'required|string|max:1024',
+            'content' => 'required_without:attachments|string|max:1024',
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|max:102400|mimes:' . implode(',', static::$mimes),
         ]);
 
-        $chat = $this->directChatForUsers($req->user(), $user);
-        $message = Message::create([
-            'chat_id' => $chat->id,
-            'sender_id' => $req->user()->id,
-            'content' => $validated['content'],
-        ]);
+        try {
+            DB::beginTransaction();
+            $chat = $this->directChatForUsers($req->user(), $user);
+            $message = Message::create([
+                'chat_id' => $chat->id,
+                'sender_id' => $req->user()->id,
+                'content' => $validated['content'] ?? '',
+            ]);
+            if ($req->hasFile('attachments')) {
+                foreach ($req->file('attachments') as $file) {
+                    $mediaService->upload(
+                        model: $message,
+                        file: $file,
+                        collection: 'attachments',
+                        disk: 'private' // Protected access
+                    );
+                }
+            }
+            DB::commit();
+        } catch (\Throwable $th) {
+            DB::rollBack();
+            abort(500, $th->getMessage());
+        }
 
-        $message->load('chat');
+
+        $message->load(['chat', 'media']);
         $message->chat->name = $message->chat->name ?? $user->name;
         $message->chat->slug = $message->chat->slug ?? $user->username;
         $message->chat->direct_user_id = $user->id;
@@ -139,7 +186,8 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => 'message created',
-            'data' => $message,
+            // 'data' => $message,
+            'data' => new MessageResource($message),
         ], 201);
     }
 
