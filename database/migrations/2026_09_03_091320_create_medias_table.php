@@ -25,8 +25,15 @@ return new class extends Migration
             $table->string('collection')->default('default'); // 'attachments', 'avatars'
             $table->unsignedBigInteger('size');       // File size in bytes
 
+            $table->unsignedInteger('width')->nullable();
+            $table->unsignedInteger('height')->nullable();
+            $table->string('checksum', 64)->nullable();
+            $table->string('blurhash', 30)->nullable();
+            $table->string('thumb_path')->nullable(); // thumbnail path
+
             // Media properties (dimensions, audio duration, thumbnails)
             $table->json('custom_properties')->nullable();
+            $table->json('metadata')->nullable();
 
             $table->foreignId('uploaded_by')->constrained('users');
             $table->timestamps();

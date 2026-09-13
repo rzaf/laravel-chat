@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Chat;
 use App\Models\ChatMembers;
+use App\Models\Media;
 use App\Models\Message;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +58,12 @@ class ChatController extends Controller
                     ->whereNull('messages.read_at')
                     ->selectRaw('COUNT(*)');
             }, 'unseen_messages_count')
+            ->selectSub(function ($query) {
+                $query->from('medias')
+                    ->where('medias.model_type', Message::class)
+                    ->whereColumn('medias.model_id', 'latest_msg.id')
+                    ->selectRaw('COUNT(*)');
+            }, 'latest_message_attachments_count')
             // Sort by latest message date; fallback to chat creation date if no messages exist
             ->orderByDesc(DB::raw('COALESCE(latest_msg.created_at, chats.created_at)'))
             ->get()

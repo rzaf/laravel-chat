@@ -16,6 +16,7 @@ class Media extends Model
 
     protected $casts = [
         'custom_properties' => 'json',
+        'metadata' => 'json',
     ];
 
     public function message(): BelongsTo

@@ -56,7 +56,20 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
 });
 
 
-Route::group(['prefix' => 'medias', 'middleware' => ['auth:sanctum']], function () {
-    Route::get('/{id}', [MediaController::class, 'get'])->name('media.get');
+// Route::group(['prefix' => 'medias', 'middleware' => ['auth:sanctum']], function () {
+//     Route::get('/{id}', [MediaController::class, 'get'])->name('media.get');
+// });
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/medias/{id}/url', [MediaController::class, 'generateUrl'])
+        ->name('media.url');
+});
+
+Route::group(['prefix' => 'medias'], function () {
+    // Public media
+    Route::get('/public/{id}', [MediaController::class, 'public'])->name('media.public');
+
+    // Private media
+    Route::get('/private/{id}', [MediaController::class, 'private'])->middleware('signed')->name('media.private');
 });
 

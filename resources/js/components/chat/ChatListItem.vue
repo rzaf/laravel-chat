@@ -30,7 +30,7 @@ const { isOpen, x, y, open, close } = useContextMenu();
                     </p>
                 </div>
                 <div class="flex flex-row items-center">
-                    <p class="py-1 mr-2 text-sm truncate">{{ chat.last_message }}</p>
+                    <p class="py-1 mr-2 text-sm truncate">{{ chat.last_message == '' ? (chat.latest_message_attachments_count + ((chat.latest_message_attachments_count>1) ? ' files' : ' file')) : chat.last_message }}</p>
                     <p
                         v-show="(chat.unseen_messages_count ?? 0) > 0"
                         class="ml-auto mr-1 text-sm text-center text-white bg-gray-400 rounded-full min-w-5 min-h-5"

@@ -35,10 +35,34 @@ export async function markPrivateMessageRead(messageId: number): Promise<void> {
     await apiClient.put(`/api/messages/${messageId}/read`);
 }
 
-export async function sendDirectMessage(username: string, content: string): Promise<Message> {
-    const { data } = await apiClient.post<{ data: Message }>(`/api/messages/direct/${username}`, {
-        content,
+// export async function sendDirectMessage(username: string, content: string): Promise<Message> {
+//     const { data } = await apiClient.post<{ data: Message }>(`/api/messages/direct/${username}`, {
+//         content,
+//     });
+//     return data.data;
+// }
+
+export async function sendDirectMessage(
+    username: string,
+    content: string,
+    attachments: File[] = [],
+): Promise<Message> {
+    const form = new FormData();
+    if (content) {
+        form.append('content', content);
+    }
+    attachments.forEach((file, index) => {
+        form.append(`attachments[${index}]`, file);
     });
+    const { data } = await apiClient.post<{ data: Message }>(
+        `/api/messages/direct/${username}`,
+        form,
+        {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        },
+    );
     return data.data;
 }
 
@@ -99,4 +123,17 @@ export async function oauthCallback(provider: string, code: string): Promise<Aut
         code,
     });
     return data;
+}
+
+
+/* -------------------------------------------------------- medias */
+
+export async function regenerateMediaUrl(mediaId: string): Promise<Object> {
+    const { data } = await apiClient.get<Object>(`/api/medias/${mediaId}/url`);
+    return data;
+}
+
+export async function fetchMediaBlob(url: string): Promise<string> {
+    const response = await apiClient.get(url, { responseType: 'blob' });
+    return URL.createObjectURL(response.data);
 }

@@ -63,8 +63,8 @@ export function useMessages() {
         return true;
     }
 
-    async function send(slug: string, content: string): Promise<Message> {
-        const message = await sendDirectMessage(slug, content);
+    async function send(slug: string, content: string, attachments: File[] = []): Promise<Message> {
+        const message = await sendDirectMessage(slug, content, attachments);
         messages.value.push(message);
         isChatEmpty.value = false;
         return message;

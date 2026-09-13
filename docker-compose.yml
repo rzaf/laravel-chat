@@ -1,6 +1,7 @@
 services:
 
   php:
+    user: "${UID:-1000}:${GID:-1000}"
     build:
       context: .
     environment:
@@ -28,6 +29,7 @@ services:
       - database
 
   node:
+    user: "${UID:-1000}:${GID:-1000}"
     image: node:24-alpine
     working_dir: /var/www
     volumes:
@@ -55,8 +57,8 @@ services:
 
 
   mailpit:
+    user: "${UID:-1000}:${GID:-1000}"
     image: axllent/mailpit:v1.30
-    user: root
     ports:
       - "1025:1025"
       - "8025:8025"
@@ -79,6 +81,7 @@ services:
 
   # Redis Server
   redis:
+    user: "${UID:-1000}:${GID:-1000}"
     image: redis:alpine
     command: >
         sh -c 'if [ -n "${REDIS_PASSWORD}" ]; then redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"; else redis-server --appendonly yes; fi'
@@ -108,6 +111,7 @@ services:
 
   # dbgate Service
   dbgate:
+    user: "${UID:-1000}:${GID:-1000}"
     image: dbgate/dbgate:6.3.0-alpine
     restart: always
     ports:

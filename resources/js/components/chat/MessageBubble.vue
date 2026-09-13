@@ -1,7 +1,10 @@
+<!-- src/components/chat/MessageBubble.vue -->
 <script setup lang="ts">
 import { useDateFormat } from '@vueuse/core';
 import { useContextMenu } from '@/composables/useContextMenu';
+import type { Attachment } from '@/types';
 import ContextMenu from '@/components/common/ContextMenu.vue';
+import MessageAttachments from '@/components/chat/MessageAttachments.vue';
 import ForwardIcon from '@/assets/svgs/Forward.svg';
 import ReplyIcon from '@/assets/svgs/Reply.svg';
 import CopyIcon from '@/assets/svgs/Copy.svg';
@@ -13,6 +16,7 @@ defineProps<{
     message: string;
     time: string;
     isSent?: boolean;
+    attachments?: Attachment[];
 }>();
 
 const { isOpen, x, y, open, close } = useContextMenu();
@@ -55,18 +59,43 @@ const { isOpen, x, y, open, close } = useContextMenu();
             </ul>
         </ContextMenu>
 
+
+
         <div
-            class="flex flex-col p-2 rounded-md min-w-32"
+            class="rounded-md min-w-32 max-w-[90%] sm:max-w-[75%]"
             :class="{
                 'text-gray-200 ml-6 bg-blue-700': isSent,
                 'mr-6 bg-white dark:bg-gray-600': !isSent,
             }"
             @contextmenu.prevent="open"
         >
-            <p class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-            <p class="self-end ml-2 text-sm leading-none">
+            <MessageAttachments :attachments="attachments" :is-sent="isSent" />
+
+            <div class="flex flex-col p-2">
+                
+                <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
+                <p class="self-end ml-2 mt-1 text-sm leading-none opacity-80">
+                    {{ useDateFormat(time, 'HH:mm A') }}
+                </p>
+            </div>
+
+        </div>
+<!-- 
+        <div
+            class="flex flex-col p-2 rounded-md min-w-32 max-w-[90%] sm:max-w-[75%]"
+            :class="{
+                'text-gray-200 ml-6 bg-blue-700': isSent,
+                'mr-6 bg-white dark:bg-gray-600': !isSent,
+            }"
+            @contextmenu.prevent="open"
+        >
+            <MessageAttachments :attachments="attachments" :is-sent="isSent" />
+            <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
+            
+
+            <p class="self-end ml-2 mt-1 text-sm leading-none opacity-80">
                 {{ useDateFormat(time, 'HH:mm A') }}
             </p>
-        </div>
+        </div> -->
     </div>
 </template>

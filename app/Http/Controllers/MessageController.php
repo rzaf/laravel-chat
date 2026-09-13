@@ -23,6 +23,8 @@ class MessageController extends Controller
     public static $mimes = [
         'jpg',
         'jpeg',
+        'webp',
+        'gif',
         'png',
         'mp3',
         'mp4',
@@ -170,7 +172,8 @@ class MessageController extends Controller
             DB::commit();
         } catch (\Throwable $th) {
             DB::rollBack();
-            abort(500, $th->getMessage());
+            throw $th;
+            // abort(500, $th->getMessage());
         }
 
 

@@ -16,7 +16,7 @@ class UserResource extends JsonResource
             'created_at' => $this->created_at,
             'profile_photo' => $this->when(
                 $this->relationLoaded('profilePhoto') && $this->profilePhoto!=null,
-                route('media.get', [
+                route('media.public', [
                     'id' => $this->profilePhoto->id ?? 0
                 ])
             ),

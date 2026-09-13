@@ -7,7 +7,7 @@ import { useMessages } from '@/composables/useMessages';
 import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useReadReceipts } from '@/composables/useReadReceipts';
 import { isDateSeparator, messageSenderId } from '@/types';
-import type { Chat } from '@/types';
+import type { Attachment, Chat } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
 import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
@@ -21,6 +21,7 @@ const selfId = computed(() => auth.user?.id);
 
 const listRef = useTemplateRef<HTMLElement>('listRef');
 const draft = ref('');
+const attachments = ref<File[]>([]);
 
 const sending = ref(false)
 
@@ -32,7 +33,7 @@ const { markRead } = useReadReceipts((chatId) => chatStore.decrementUnseen(chatI
 
 type Row =
     | { kind: 'date'; key: string; label: string }
-    | { kind: 'message'; key: string | number; text: string; time: string; isSent: boolean };
+    | { kind: 'message'; key: string | number; text: string; time: string; isSent: boolean; attachments?: Attachment[]};
 
 const rows = computed<Row[]>(() =>
     timeline.value.map((item, index) =>
@@ -44,6 +45,7 @@ const rows = computed<Row[]>(() =>
                   text: item.content,
                   time: item.created_at,
                   isSent: messageSenderId(item) === selfId.value,
+                  attachments: item.attachments,
               },
     ),
 );
@@ -84,17 +86,25 @@ async function handleSend(): Promise<void> {
     console.log('handleSend: ', userExists.value)
     const content = draft.value.trim();
     const slug = props.chat.slug;
-    if (!content || !slug || userExists.value === false) {
+    if (
+        !slug ||
+        userExists.value === false ||
+        (!content && attachments.value.length === 0)
+    ) {
         return;
     }
+    // if (!content || !slug || userExists.value === false) {
+    //     return;
+    // }
     sending.value = true;
     try {
-        const message = await send(slug, content);
+        const message = await send(slug, content, attachments.value);
         if (props.chat.id == null) {
             chatStore.addChat(message?.chat?.id || 0, slug, message?.chat?.name || slug, content, props.chat.direct_user_id);
             chatStore.selectChatBySlug(slug);
         }
         draft.value = '';
+        attachments.value = [];
         if (props.chat.id != null) {
             chatStore.setLastMessage(props.chat.id, message.content, message.created_at);
         }
@@ -143,7 +153,7 @@ watch(
 
         <div
             v-show="showGoToBottom"
-            class="absolute flex items-center justify-center w-10 h-10 bg-white rounded-lg shadow-lg cursor-pointer dark:bg-gray-900 left-4 bottom-20"
+            class="absolute z-90 flex items-center justify-center w-10 h-10 bg-white rounded-lg shadow-lg cursor-pointer dark:bg-gray-900 left-4 bottom-20"
             @click="scrollToBottom(true)"
         >
             <ChevronDownIcon class="fill-black dark:fill-gray-400 w-8 h-8" />
@@ -181,17 +191,17 @@ watch(
         <div
             v-else
             ref="listRef"
-            class="w-full flex-1 min-h-0 overflow-y-auto pt-3 bg-gray-200 scrollable dark:bg-gray-800 scroll-smooth"
+            class="w-full flex-1 min-h-0 overflow-y-auto pt-3 bg-gray-200 scrollable dark:bg-gray-800 "
             @scroll="handleScroll"
         >
             <template v-for="row in rows" :key="row.key">
                 <div v-if="row.kind === 'date'" class="flex items-center justify-center py-1">
                     <span class="px-3 py-1 text-gray-200 bg-gray-700 rounded-lg">{{ row.label }}</span>
                 </div>
-                <MessageBubble v-else :message="row.text" :time="row.time" :is-sent="row.isSent" />
+                <MessageBubble v-else :message="row.text" :time="row.time" :is-sent="row.isSent" :attachments="row.attachments"/>
             </template>
         </div>
 
-        <MessageComposer :sending="sending" v-model="draft" @send="handleSend" />
+        <MessageComposer :sending="sending" v-model="draft" :attachments="attachments" @send="handleSend" />
     </div>
 </template>

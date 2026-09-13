@@ -28,6 +28,22 @@ export interface Chat {
     last_message?: string | null;
     last_message_created_at?: string | null;
     unseen_messages_count?: number;
+    latest_message_attachments_count?: number;
+}
+
+export interface Attachment {
+    id: number;
+    name: string;
+    type: string;
+    size: number;
+    collection: string;
+    url: string;
+    thumbnail_url: string;
+    blurhash?: string;
+    expire: string;
+    width?: number;
+    height?: number;
+    created_at: string;
 }
 
 export interface Message {
@@ -42,6 +58,7 @@ export interface Message {
     updated_at?: string;
     read_at?: string | null;
     chat?: Chat | null; // chat relation of Message
+    attachments?: Attachment[];
 }
 
 /** Payload of the `NewPrivateMessage` broadcast event. */
@@ -53,6 +70,7 @@ export interface IncomingMessage {
     created_at: string;
     updated_at: string;
     read_at: string | null;
+    attachments?: Attachment[];
 }
 
 /** A day divider injected between messages in the timeline. */
