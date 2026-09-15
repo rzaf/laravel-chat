@@ -23,4 +23,6 @@ yarn-error.log
 /.zed
 
 .app-data/
-.scribe/
+_ide_helper.php.scribe/
+_ide_helper.php
+.scribe

@@ -70,6 +70,7 @@ class User extends Authenticatable
 
     public function profilePhoto()
     {
+        // return $this->morphMany(Media::class, 'model');
         return $this->morphOne(Media::class, 'model')
             ->where('collection', 'profiles')
             ->latestOfMany();

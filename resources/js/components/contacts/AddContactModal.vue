@@ -69,7 +69,7 @@ const filteredContacts = computed(() => {
 });
 
 onMounted(async () => {
-    contacts.value = await getContacts();
+    contacts.value = (await getContacts()).data;
 });
 
 
@@ -99,7 +99,7 @@ async function searchUsers(searchTerm: string) {
         if (id !== searchId) return;
 
         searchedUsers.value.push(...res.data);
-        gotAllPages.value = res.next_page_url === null;
+        gotAllPages.value = res.links.next === null;
 
     } finally {
         if (id === searchId) {
@@ -177,8 +177,8 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
                         'dark:!bg-blue-700 !bg-blue-200': selectedUserName === u.username,
                     }" class="flex border-b-2 items-center px-2 py-3 align-middle [border-radius:6px_25px_6px_35px] border-gray-100 cursor-pointer dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
                         @click="selectedUserName = u.username!">
-                        <img src="/storage/default-profile.png" alt="profile-image"
-                            class="w-12 h-12 mr-2 rounded-full" />
+                        <img :src="u.profile_photo || '/storage/default-profile.png'" alt="profile-image"
+                            class="w-12 h-12 mr-2 rounded-full object-contain" />
                         <div class="flex flex-col w-full overflow-hidden h-12">
                             <div class="flex flex-row">
                                 <h3 class="text-lg font-normal truncate">{{ u.name || '' }}</h3>

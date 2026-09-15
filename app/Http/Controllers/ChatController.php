@@ -6,6 +6,7 @@ use App\Models\Chat;
 use App\Models\ChatMembers;
 use App\Models\Media;
 use App\Models\Message;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -26,6 +27,16 @@ class ChatController extends Controller
         $latestMessageIds = DB::table('messages')
             ->select(DB::raw('MAX(id) as id'))
             ->groupBy('chat_id');
+        // $latestUserMediaIds = DB::table('medias')
+        //     ->select(DB::raw('MAX(id) as id'))
+        //     ->where('model_type', User::class)
+        //     ->where('collection', 'avatars')
+        //     ->groupBy('model_id');
+
+        // $latestChatMediaIds = DB::table('medias')
+        //     ->select(DB::raw('MAX(id) as id'))
+        //     ->where('model_type', Chat::class)
+        //     ->groupBy('model_id');
 
         return ChatMembers::query()
             ->where('chat_members.user_id', $userId)
@@ -36,6 +47,28 @@ class ChatController extends Controller
                     ->where('peer_members.user_id', '!=', $userId);
             })
             ->leftJoin('users as peer', 'peer.id', '=', 'peer_members.user_id')
+            ->leftJoin('medias as profile_media', function ($join) {
+                $join->on('profile_media.model_id', '=', 'peer.id')
+                    ->where('profile_media.model_type', User::class)
+                    ->where('profile_media.collection', 'profiles')
+                    ->whereRaw('profile_media.id = (
+                        SELECT MAX(m.id)
+                        FROM medias m
+                        WHERE m.model_type = ?
+                        AND m.model_id = peer.id
+                        AND m.collection = ?
+                    )', [User::class, 'profiles']);
+            })
+            ->leftJoin('medias as chat_media', function ($join) {
+                $join->on('chat_media.model_id', '=', 'chats.id')
+                    ->where('chat_media.model_type', Chat::class)
+                    ->whereRaw('chat_media.id = (
+                        SELECT MAX(m.id)
+                        FROM medias m
+                        WHERE m.model_type = ?
+                        AND m.model_id = chats.id
+                    )', [Chat::class]);
+            })
             // Join max message IDs subquery, then join the actual message details
             ->leftJoinSub($latestMessageIds, 'latest_msg_ids', function ($join) {
                 $join->on('latest_msg_ids.id', '=', DB::raw('(SELECT MAX(id) FROM messages WHERE chat_id = chat_members.chat_id)'));
@@ -50,6 +83,7 @@ class ChatController extends Controller
                 'chats.created_at',
                 'latest_msg.content as last_message',
                 'latest_msg.created_at as last_message_created_at',
+                DB::raw('COALESCE(chat_media.id, profile_media.id) as profile_id'),
             ])
             ->selectSub(function ($query) use ($userId) {
                 $query->from('messages')
@@ -71,7 +105,10 @@ class ChatController extends Controller
                 $chat->last_message_created_at = $chat->last_message_created_at
                     ? \Carbon\Carbon::parse($chat->last_message_created_at)
                     : null;
-
+                $profileId = $chat->profile_id;
+                // todo: handle private profiles ???
+                $chat->profile_photo = $profileId ? route('media.public', [ 'id' => $profileId ?? 0, 'thumbnail' => 1,]) : null;
+                unset($chat->profile_id);
                 return $chat;
             });
     }

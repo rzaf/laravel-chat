@@ -6,7 +6,9 @@ import type {
     LoginCredentials,
     OAuthRedirectResponse,
     Paginated,
+    ResourceCollectionPaginated,
     RegisterPayload,
+    ApiResponse,
 } from '@/types/api';
 
 /* ------------------------------------------------------------------ chats */
@@ -85,9 +87,9 @@ export async function searchUsers(term: string, page = 1, notInContacts :boolean
     return data;
 }
 
-export async function getContacts(): Promise<Contact[]> {
-    const { data } = await apiClient.get<Contact[]>('/api/contacts');
-    return data ?? [];
+export async function getContacts(): Promise<ApiResponse<Contact[]>> {
+    const { data } = await apiClient.get<ApiResponse<Contact[]>>('/api/contacts');
+    return data;
 }
 
 export async function addOrUpdateContact(username: string, name?: string): Promise<Contact> {

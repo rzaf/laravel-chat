@@ -17,8 +17,8 @@ class MediaResource extends JsonResource
         if ($this->model_type == User::class) {
             return [
                 'id' => $this->id,
-                'url' => URL::temporarySignedRoute('media.public', $expire, ['id' => $this->id]),
-                'thumbnail_url' => URL::temporarySignedRoute('media.public', $expire, ['id' => $this->id,'thumbnail' => true,]),
+                'url' => route('media.public', ['id' => $this->id]),
+                'thumbnail_url' => route('media.public', ['id' => $this->id,'thumbnail' => true,]),
                 'expire' => $expire->toISOString(),
             ];
         }

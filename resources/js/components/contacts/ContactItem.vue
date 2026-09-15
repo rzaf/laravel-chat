@@ -33,7 +33,7 @@ function requestDelete(): void {
         class="relative flex items-center px-2 py-3 align-middle border-b border-gray-100 cursor-pointer dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700"
         @click="emit('closeContactsModals')"
     >
-        <img src="/storage/default-profile.png" alt="profile-image" class="w-10 h-10 mr-2" />
+        <img :src="contact.user.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-10 h-10 mr-2 rounded-full object-contain" />
 
         <div class="flex items-center w-full">
             <div class="flex flex-col w-full h-full overflow-hidden">

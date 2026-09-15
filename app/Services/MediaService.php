@@ -69,7 +69,8 @@ class MediaService
             $blurhash = Blurhash::encode($pixels, 4, 3);
 
 
-            $image->cover(100, 100, 'center');
+            // $image->cover(100, 100, 'center');
+            $image->scaleDown(width: 100);
             $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
             $thumbPath = $directory . '/' . $uuidName . '_thumb';
             // $encoded->save(Storage::disk($disk)->path('') . $thumbPath);

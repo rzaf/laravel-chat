@@ -11,6 +11,8 @@ export interface User {
     name?: string;
     username?: string;
     email?: string;
+    profile_photo?: string;
+    // profiles?: Object[];
     /** Sanctum bearer token; present only on the locally-stored auth user. */
     token?: string;
 }
@@ -29,6 +31,7 @@ export interface Chat {
     last_message_created_at?: string | null;
     unseen_messages_count?: number;
     latest_message_attachments_count?: number;
+    profile_photo?: string;
 }
 
 export interface Attachment {
@@ -90,13 +93,12 @@ export function messageSenderId(message: Message): number | undefined {
     return message.from ?? message.sender_id;
 }
 
-export interface ContactUser {
-    id?: number;
-    name?: string;
-    username: string;
-}
-
 export interface Contact {
     name?: string | null;
-    user: ContactUser;
+    // user: ContactUser;
+
+    // user: User;
+    user: Omit<User, 'username'> & {
+        username: string;
+    };
 }

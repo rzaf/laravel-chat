@@ -38,7 +38,7 @@ class UsersController extends Controller
             $query = $query->whereNotIn('id', $contactUserIds);
         }
         // return $query->paginate(6);
-        return UserResource::collection($query->paginate(6));
+        return UserResource::collection($query->simplePaginate(6));
     }
 
     /**
@@ -52,6 +52,7 @@ class UsersController extends Controller
     public function get(Request $req)
     {
         return new UserResource(User::where('username', $req->username)->with([
+            'profilePhoto',
             'media'
         ])->firstOrFail());
     }

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\ContactResource;
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Models\UserContacts;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -26,9 +28,13 @@ class ContactController extends Controller
      */
     public function index(Request $req)
     {
-        return $req->user()->contacts()
-            ->with('user')
+        $contacts = $req->user()->contacts()
+            ->with([
+                'user',
+                'user.profilePhoto'
+            ])
             ->get();
+        return ContactResource::collection($contacts);
     }
 
     /**
@@ -58,9 +64,9 @@ class ContactController extends Controller
             'owner' => $req->user()->id,
             'user_id' => $user->id,
         ]);
-        $contact->load('user');
+        $contact->load(['user','user.profilePhoto']);
         return response()->json([
-            'data' => $contact,
+            'data' => new ContactResource($contact),
             'message' => 'contact saved',
         ], 200);
     }

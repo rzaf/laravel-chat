@@ -15,10 +15,10 @@ class UserResource extends JsonResource
             'username' => $this->username,
             'created_at' => $this->created_at,
             'profile_photo' => $this->when(
-                $this->relationLoaded('profilePhoto') && $this->profilePhoto!=null,
-                route('media.public', [
-                    'id' => $this->profilePhoto->id ?? 0
-                ])
+                $this->relationLoaded('profilePhoto') && $this->profilePhoto != null,
+                // todo: handle private profiles ???
+                route('media.public', [ 'id' => $this->profilePhoto->id ?? 0, 'thumbnail' => 1,]),
+                ''
             ),
             'profiles' => MediaResource::collection(
                 $this->whenLoaded('media')

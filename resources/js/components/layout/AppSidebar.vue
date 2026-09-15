@@ -40,7 +40,7 @@ const isDark = useDark();
                 class="absolute top-0 left-0 z-50 flex flex-col w-64 h-full bg-white dark:bg-gray-800"
             >
                 <div class="flex items-center p-2 border-b border-gray-200 dark:border-gray-700">
-                    <img src="/storage/default-profile.png" alt="profile-image" class="w-12 h-12 mr-3" />
+                    <img src="/storage/default-profile.png" alt="profile-image" class="w-12 h-12 mr-3 object-contain" />
                     <div class="flex flex-col">
                         <h3 class="text-xl font-normal">{{ auth.user?.name }}</h3>
                         <p class="text-base">@{{ auth.user?.username }}</p>

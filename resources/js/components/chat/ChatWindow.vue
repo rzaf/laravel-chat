@@ -144,7 +144,7 @@ watch(
                 />
             </RouterLink>
 
-            <img src="/storage/default-profile.png" alt="profile-image" class="w-10 h-10 mr-3" />
+            <img :src="chat.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-10 h-10 mr-3 rounded-full object-contain" />
             <div class="flex flex-col">
                 <h3 class="text-xl font-normal">{{ chat.name ?? chat.slug }}</h3>
                 <p class="text-sm">@{{ chat.slug }}</p>
