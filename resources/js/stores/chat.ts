@@ -10,6 +10,7 @@ function timestamp(value: string | null | undefined): number {
 export default defineStore('chat', () => {
     /** `null` while the initial list is still loading. */
     const chatList = ref<Chat[] | null>(null);
+    const chatListLoadPromise = ref<Promise<void> | null>(null);
     const currentChat = ref<Chat | null>(null);
     /** Signals the open chat window to append a just-received message. */
     const lastIncoming = ref<IncomingMessage | null>(null);
@@ -30,11 +31,24 @@ export default defineStore('chat', () => {
     }
 
     async function loadChatList(): Promise<void> {
-        chatList.value = await getChatList();
+        if (chatListLoadPromise.value) {
+            return chatListLoadPromise.value;
+        }
+
+        chatListLoadPromise.value = (async () => {
+            chatList.value = await getChatList();
+            chatListLoadPromise.value = null;
+        })();
+
+        return chatListLoadPromise.value;
     }
 
     /** Point `currentChat` at the chat for `slug`, or a placeholder if unknown. */
-    function selectChatBySlug(slug: string): void {
+    async function selectChatBySlug(slug: string): Promise<void> {
+        if (chatList.value === null) {
+            await loadChatList();
+        }
+
         currentChat.value = chatList.value?.find((c) => c.slug === slug) ?? { slug };
     }
 

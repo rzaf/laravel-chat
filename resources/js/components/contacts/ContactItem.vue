@@ -7,6 +7,7 @@ import TrashIcon from '@/assets/svgs/Trash.svg';
 import EditIcon from '@/assets/svgs/Edit.svg';
 import ForwardIcon from '@/assets/svgs/Forward.svg';
 import type { Contact } from '@/types';
+import Avatar from '../chat/Avatar.vue';
 
 const props = defineProps<{ contact: Contact }>();
 
@@ -33,7 +34,7 @@ function requestDelete(): void {
         class="relative flex items-center px-2 py-3 align-middle border-b border-gray-100 cursor-pointer dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700"
         @click="emit('closeContactsModals')"
     >
-        <img :src="contact.user.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-10 h-10 mr-2 rounded-full object-contain" />
+        <Avatar class="w-12 h-12 mr-2" :src="contact.user.profile_photo || '/storage/default-profile.png'"></Avatar>
 
         <div class="flex items-center w-full">
             <div class="flex flex-col w-full h-full overflow-hidden">

@@ -12,6 +12,7 @@ import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
 import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
 import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
+import Avatar from './Avatar.vue';
 
 const props = defineProps<{ chat: Chat }>();
 
@@ -144,7 +145,7 @@ watch(
                 />
             </RouterLink>
 
-            <img :src="chat.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-10 h-10 mr-3 rounded-full object-contain" />
+            <Avatar class="w-10 h-10 mr-3" :src="chat.profile_photo || '/storage/default-profile.png'"></Avatar>
             <div class="flex flex-col">
                 <h3 class="text-xl font-normal">{{ chat.name ?? chat.slug }}</h3>
                 <p class="text-sm">@{{ chat.slug }}</p>

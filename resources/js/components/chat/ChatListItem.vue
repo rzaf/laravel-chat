@@ -4,6 +4,7 @@ import { formattedTimestamp } from '@/helpers/time';
 import { useContextMenu } from '@/composables/useContextMenu';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { Chat } from '@/types';
+import Avatar from './Avatar.vue';
 
 defineProps<{
     chat: Chat;
@@ -21,7 +22,9 @@ const { isOpen, x, y, open, close } = useContextMenu();
             class="flex items-center px-2 py-3 align-middle border-b border-gray-100 dark:border-gray-600"
             @contextmenu.prevent="open"
         >
-            <img :src="chat.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-13 h-13 mr-2 rounded-full object-contain" />
+
+            <Avatar class="w-13 h-13 mr-3" :src="chat.profile_photo || '/storage/default-profile.png'"></Avatar>
+            <!-- <img :src="chat.profile_photo || '/storage/default-profile.png'" alt="profile-image" class="w-13 h-13 mr-2 rounded-full object-cover" /> -->
             <div class="flex flex-col w-full h-full overflow-hidden">
                 <div class="flex flex-row">
                     <h3 class="text-xl font-normal truncate">{{ chat.name }}</h3>

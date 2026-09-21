@@ -10,6 +10,7 @@ import ContactItem from './ContactItem.vue';
 import { searchUsers as apiSearchUsers, deleteContact as apiDeleteContact, addOrUpdateContact, getContacts } from '@/api';
 import CloseIcon from '@/assets/svgs/Close.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
+import Avatar from '../chat/Avatar.vue';
 
 
 const emit = defineEmits<{
@@ -177,8 +178,7 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
                         'dark:!bg-blue-700 !bg-blue-200': selectedUserName === u.username,
                     }" class="flex border-b-2 items-center px-2 py-3 align-middle [border-radius:6px_25px_6px_35px] border-gray-100 cursor-pointer dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
                         @click="selectedUserName = u.username!">
-                        <img :src="u.profile_photo || '/storage/default-profile.png'" alt="profile-image"
-                            class="w-12 h-12 mr-2 rounded-full object-contain" />
+                        <Avatar class="w-12 h-12 mr-2" :src="u.profile_photo || '/storage/default-profile.png'"></Avatar>
                         <div class="flex flex-col w-full overflow-hidden h-12">
                             <div class="flex flex-row">
                                 <h3 class="text-lg font-normal truncate">{{ u.name || '' }}</h3>
