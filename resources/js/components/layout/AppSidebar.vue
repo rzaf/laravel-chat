@@ -2,7 +2,7 @@
 import { useDark } from '@vueuse/core';
 import useAuthStore from '@/stores/auth';
 import ContactsIcon from '@/assets/svgs/Contacts.svg';
-import AddContactIcon from '@/assets/svgs/AddContact.svg';
+import UserPlusIcon from '@/assets/svgs/UserPlus.svg';
 import SunIcon from '@/assets/svgs/Sun.svg';
 import MoonIcon from '@/assets/svgs/Moon.svg';
 import SettingsIcon from '@/assets/svgs/Settings.svg';
@@ -56,7 +56,7 @@ const isDark = useDark();
                     </a>
 
                     <a @click="open = false; emit('openAddContact')">
-                        <AddContactIcon class="size-8 mx-4 stroke-gray-500" />
+                        <UserPlusIcon class="size-8 mx-4 stroke-gray-500" />
                         Add contact
                     </a>
 

@@ -133,22 +133,30 @@ watch(
         }
     },
 );
+
+const emit = defineEmits<{
+    (e: 'openChatProfile', chat: Chat ): void;
+}>();
+
+
 </script>
 
 <template>
     <div class="flex flex-col h-full min-h-0">
 
-        <div id="top-profile" class="z-10 flex items-center px-2 py-3 align-middle border-b border-gray-200 h-14">
+        <div id="top-profile" class="z-10 flex items-center px-2 py-3 align-middle border-b border-gray-200 dark:border-gray-600 h-14">
             <RouterLink to="/">
                 <BackArrowIcon
                     class="px-2 py-1 mr-2 cursor-pointer lg:hidden rounded-2xl fill-gray-500 hover:bg-slate-300 w-[45px] h-[45px]"
                 />
             </RouterLink>
 
-            <Avatar class="w-10 h-10 mr-3" :src="chat.profile_photo || '/storage/default-profile.png'"></Avatar>
-            <div class="flex flex-col">
-                <h3 class="text-xl font-normal">{{ chat.name ?? chat.slug }}</h3>
-                <p class="text-sm">@{{ chat.slug }}</p>
+            <div @click="emit('openChatProfile', chat)" class="w-fit flex align-middle items-center cursor-pointer">
+                <Avatar class="w-10 h-10 mr-3" :src="chat.profile_photo || '/storage/default-profile.png'"></Avatar>
+                <div class="flex flex-col">
+                    <h3 class="text-xl font-normal">{{ chat.name ?? chat.slug }}</h3>
+                    <p class="text-sm">@{{ chat.slug }}</p>
+                </div>
             </div>
         </div>
 

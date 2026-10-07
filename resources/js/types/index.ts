@@ -13,6 +13,12 @@ export interface User {
     email?: string;
     profile_photo?: string;
     // profiles?: Object[];
+    created_at?: string;
+    // Add later
+    bio?: string | null;
+    last_seen_at?: string | null;
+    is_online?: boolean;
+
     /** Sanctum bearer token; present only on the locally-stored auth user. */
     token?: string;
 }
@@ -32,6 +38,11 @@ export interface Chat {
     unseen_messages_count?: number;
     latest_message_attachments_count?: number;
     profile_photo?: string;
+
+    //Add later
+    description?: string | null;
+    members_count?: number;
+    owner_id?: number | null;
 }
 
 export interface Attachment {

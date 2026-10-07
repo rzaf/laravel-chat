@@ -12,6 +12,7 @@ import ContactsModal from '@/components/contacts/ContactsModal.vue';
 import AddContactModal from '@/components/contacts/AddContactModal.vue';
 import EditContactModal from '@/components/contacts/EditContactModal.vue';
 import SettingModal from '@/components/modals/SettingModal.vue';
+import ProfileModal from '@/components/modals/ProfileModal.vue';
 import Modal from '@/components/common/Modal.vue';
 
 const route = useRoute();
@@ -30,6 +31,7 @@ const pageNotFound = ref(route.name === 'notFound');
 
 const addContactModalRef = ref<InstanceType<typeof AddContactModal> | null>(null);
 const editContactModalRef = ref<InstanceType<typeof EditContactModal> | null>(null);
+const profileModalRef = ref<InstanceType<typeof Modal> | null>(null);
 const settingModalRef = ref<InstanceType<typeof Modal> | null>(null);
 
 chat.loadChatList();
@@ -77,7 +79,12 @@ function handleLogout(): void {
                     {{ pageNotFound ? 'page not found !!!' : 'no chat is selected' }}
                 </h2>
             </div>
-            <ChatWindow v-else :chat="chat.currentChat" />
+            <ChatWindow v-else :chat="chat.currentChat" 
+                @open-chat-profile="(chat) => {
+                    console.log(`openning chat profile for : ${chat.slug}`, chat);
+                    profileModalRef?.open(chat.slug, chat);
+                }"
+            />
         </div>
     </div>
 
@@ -102,6 +109,10 @@ function handleLogout(): void {
             addContactModalRef?.open();
             addContactModalRef?.saveContact(c);
         }"
+    />
+
+    <ProfileModal
+        ref="profileModalRef"
     />
 
     <Modal ref="settingModalRef">

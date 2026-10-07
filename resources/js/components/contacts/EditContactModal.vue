@@ -48,7 +48,7 @@ defineExpose({ open, close, toggle, isOpen });
 </script>
 
 <template>
-    <Modal ref="modal" width-class="lg:w-80 w-[90%]" :z-index="60">
+    <Modal ref="modal" width-class="lg:w-80 w-[90%]">
         <div class="flex flex-col h-full">
             <h2 class="h-12 px-6 pt-3 text-lg">Update Contact</h2>
             <div class="flex flex-col h-[calc(100%-3rem)] p-5">
