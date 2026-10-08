@@ -1,5 +1,5 @@
 import { apiClient, publicClient } from '@/api/client';
-import type { Chat, Contact, Message, User } from '@/types';
+import type { Attachment, Chat, Contact, Message, User } from '@/types';
 import type {
     AuthResponse,
     BroadcastAuthResponse,
@@ -107,6 +107,13 @@ export async function addOrUpdateContact(username: string, name?: string): Promi
 
 export async function deleteContact(username: string): Promise<void> {
     await apiClient.delete(`/api/contacts/users/${username}`);
+}
+
+export async function getProfilePhotos(username :string, page :number = 1): Promise<ResourceCollectionPaginated<Attachment>> {
+    const { data } = await apiClient.get<ResourceCollectionPaginated<Attachment>>(`/api/users/${username}/profiles`,{
+        params: page ? { page } : undefined,
+    });
+    return data ?? [];
 }
 
 /* --------------------------------------------------------------- auth */

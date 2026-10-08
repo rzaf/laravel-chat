@@ -20,6 +20,10 @@ class MediaResource extends JsonResource
                 'url' => route('media.public', ['id' => $this->id]),
                 'thumbnail_url' => route('media.public', ['id' => $this->id,'thumbnail' => true,]),
                 'expire' => $expire->toISOString(),
+                'width' => $this->width,
+                'height' => $this->height,
+                'blurhash' => $this->blurhash,
+                'created_at' => $this->created_at,
             ];
         }
         return [

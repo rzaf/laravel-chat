@@ -68,7 +68,9 @@ class UsersController extends Controller
     public function getProfiles(Request $req)
     {
         $user = User::where('username', $req->username)->firstOrFail();
-        return MediaResource::collection($user->media);
+        $medias = Media::query()->where('model_id', $user->id)->where('model_type', User::class)
+            ->latest()->paginate(8);
+        return MediaResource::collection($medias);
     }
 
 
