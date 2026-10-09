@@ -236,11 +236,12 @@ function openGallery() {
                 container.className = 'dark pswp__thumb-container scrollable-x';
                 el.appendChild(container);
 
-                const updateActive = () => {
+                let lastActiveIndex = pswp.currIndex;
+                const updateActive = (scrollToActive = true) => {
                     container.querySelectorAll<HTMLElement>('.pswp__thumb-item').forEach((btn, i) => {
                         const active = i === pswp.currIndex;
                         btn.classList.toggle('active', active);
-                        if (active) {
+                        if (active && scrollToActive) {
                             container.scrollTo({
                                 left: btn.offsetLeft - container.clientWidth / 2 + btn.offsetWidth / 2,
                                 behavior: 'smooth',
@@ -251,6 +252,7 @@ function openGallery() {
 
                 // (Re)build the strip from the current `slides`
                 syncThumbs = () => {
+                    const previousScrollLeft = container.scrollLeft;
                     container.innerHTML = '';
                     slides.forEach((s, index) => {
                         const btn = document.createElement('button');
@@ -269,7 +271,8 @@ function openGallery() {
                         container.appendChild(btn);
                     });
                     el.style.display = slides.length > 1 ? '' : 'none';
-                    updateActive();
+                    container.scrollLeft = previousScrollLeft;
+                    updateActive(false);
                 };
 
                 // Load next page when the strip is scrolled near its end
@@ -279,7 +282,9 @@ function openGallery() {
                 }, { passive: true });
 
                 pswp.on('change', () => {
-                    updateActive();
+                    const indexChanged = pswp.currIndex !== lastActiveIndex;
+                    lastActiveIndex = pswp.currIndex;
+                    updateActive(indexChanged);
                     if (pswp.currIndex >= slides.length - 3) loadNextPage();
                 });
 
