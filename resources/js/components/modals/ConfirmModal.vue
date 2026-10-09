@@ -6,10 +6,10 @@ const { state, accept, close } = useConfirm();
 
 <template>
     <template v-if="state.isOpen">
-        <div class="fixed inset-0 z-[60] w-full h-full backdrop-blur-sm bg-[#24242484]" @click="close"></div>
+        <div class="fixed inset-0 z-[1000] w-full h-full backdrop-blur-sm bg-[#24242484]" @click="close"></div>
 
         <div
-            class="fixed z-[61] left-0 right-0 mx-auto top-1/3 w-[90%] max-w-md bg-white rounded-lg shadow-lg dark:bg-gray-800"
+            class="fixed z-[10001] left-0 right-0 mx-auto top-1/3 w-[90%] max-w-md bg-white rounded-lg shadow-lg dark:bg-gray-800"
         >
             <div class="flex flex-col p-6 text-center">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">

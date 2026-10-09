@@ -233,7 +233,7 @@ function openGallery() {
                 el.className = 'pswp__custom-thumbnails-bar';
 
                 const container = document.createElement('div');
-                container.className = 'pswp__thumb-container scrollable-x';
+                container.className = 'dark pswp__thumb-container scrollable-x';
                 el.appendChild(container);
 
                 const updateActive = () => {
@@ -361,8 +361,8 @@ defineExpose({
 </script>
 
 <template>
-    <Modal ref="modal" width-class="lg:w-[450px] w-[90%]" height-class="h-[70%]">
-        <div @keyup.escape="close()" class="relative flex flex-col h-full max-h-[80vh]">
+    <Modal ref="modal" width-class="max-w-[500px] w-[90%]" height-class="h-[70%]">
+        <div @keyup.escape="close()" class="relative flex flex-col h-full max-h-[95vh]">
             <!-- Close -->
             <button type="button" @click="close"
                 class="absolute top-2 left-2 z-10 p-3 rounded-full cursor-pointer text-gray-400 dark:hover:text-gray-300 hover:text-gray-500 hover:bg-black/5 dark:hover:bg-white/5 transition-colors duration-150"
@@ -665,7 +665,6 @@ defineExpose({
     border-radius: 12px;
     max-width: 90vw;
     overflow-x: auto;
-    scrollbar-width: thin;
 }
 
 .pswp__thumb-item {

@@ -36,7 +36,7 @@ defineExpose({
         <div
             v-if="isModalOpen"
             :style="{ zIndex }"
-            class="fixed left-0 right-0 m-auto rounded-lg top-5 lg:inset-0 w-max h-max text-gray-800 bg-white dark:bg-gray-800 dark:text-gray-300"
+            class="fixed left-0 right-0 m-auto rounded-lg top-5 lg:inset-0 h-max text-gray-800 bg-white dark:bg-gray-800 dark:text-gray-300"
             :class="[widthClass, heightClass]"
         >
             <slot />

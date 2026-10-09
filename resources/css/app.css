@@ -1,5 +1,8 @@
 @import 'tailwindcss';
+@import 'photoswipe/dist/photoswipe.css';
+/* @import 'highlight.js/styles/github-dark-dimmed.css'; */
 @custom-variant dark (&:where(.dark, .dark *));
+
 
 @layer base {
   html,
@@ -10,22 +13,86 @@
   }
 }
 
+
+:root {
+    --scrollbar-track: transparent;
+    --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
+}
+
+/* Tailwind Dark Mode Overrides */
+.dark {
+    --scrollbar-track: transparent;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+}
+
+/* Base Scroll Container Utilities */
 .scrollable {
     overflow-y: auto;
+    scrollbar-gutter: stable; /* Prevents horizontal layout shifts */
+}
 
+.scrollable-x {
+    overflow-x: auto;
+}
+
+/* 1. Standard CSS Syntax (Firefox & modern W3C standard) */
+.scrollable,
+.scrollable-x {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* 2. WebKit / Blink Engine Syntax (Chrome, Edge, Safari) */
+.scrollable::-webkit-scrollbar {
+    width: 6px;
+}
+
+.scrollable-x::-webkit-scrollbar {
+    height: 6px;
+}
+
+.scrollable::-webkit-scrollbar-track,
+.scrollable-x::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 9999px;
+}
+
+.scrollable::-webkit-scrollbar-thumb,
+.scrollable-x::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+    border: 1.5px solid transparent; /* Padding effect inside track */
+    background-clip: padding-box;
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover,
+.scrollable-x::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+    background-clip: padding-box;
+}
+
+/* .scrollable {
+    overflow-y: auto;
+}
+
+.scrollable-x {
+    overflow-x: auto;
 }
 
 .scrollable::-webkit-scrollbar {
     width: 5px;
 }
 
-/* Track */
-.scrollable::-webkit-scrollbar-track {
+.scrollable-x::-webkit-scrollbar {
+    height: 5px;
+}
+
+.scrollable::-webkit-scrollbar-track, .scrollable-x::-webkit-scrollbar-track  {
     background: rgba(0, 0, 0, 0.15);
 }
 
-/* Handle */
-.scrollable::-webkit-scrollbar-thumb {
+.scrollable::-webkit-scrollbar-thumb, .scrollable-x::-webkit-scrollbar-thumb  {
     background: rgba(0, 0, 0, 0.18);
-
-}
+} */
