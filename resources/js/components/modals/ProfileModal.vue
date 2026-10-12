@@ -14,11 +14,10 @@ import UserPlusIcon from '@/assets/svgs/UserPlus.svg';
 import UserMinusIcon from '@/assets/svgs/UserMinus.svg';
 import UserIcon from '@/assets/svgs/User.svg';
 import Avatar from '../chat/Avatar.vue';
-import type { Attachment, Chat, User } from '@/types';
-import { getChatBySlug, getProfilePhotos } from '@/api/index.ts';
+import type { Chat, User } from '@/types';
+import { getChatBySlug } from '@/api/index.ts';
+import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
 
-import PhotoSwipeLightbox from 'photoswipe/lightbox';
-import 'photoswipe/style.css';
 
 const { modal, open: modalOpen, close, toggle, isOpen } = useModalControl();
 
@@ -26,8 +25,7 @@ const chatSlug = ref<string | null>(null);
 const chat = ref<Chat | null>(null);
 const user = ref<User | null>(null);
 const isLoading = ref<boolean>(true);
-const chatProfileImages = ref<Attachment[] | null>(null);
-const isLoadingPhotos = ref<boolean>(false);
+const profileImageGallery = ref<InstanceType<typeof ProfileImageGallery> | null>(null);
 
 async function LoadChat() {
     if (!chatSlug.value) return;
@@ -52,253 +50,24 @@ async function LoadChat() {
 function open(slug: string, c: Chat | null): void {
     if (!slug) return;
 
-    destroyPhotoSwipe();
+    profileImageGallery.value?.destroyPhotoSwipe();
     chat.value = c;
     user.value = null;
     chatSlug.value = slug;
 
-    resetPhotos(slug);
+    profileImageGallery.value?.resetPhotos(slug);
     if (c == null || c.type !== 'group') {
         LoadChat();
-        startFirstPage(slug); // prefetch page 1 so the click opens instantly
+        profileImageGallery.value?.startFirstPage(slug);
     }
     modalOpen();
 }
 
-function destroyPhotoSwipe() {
-    syncThumbs = null;
-    if (lightbox) {
-        lightbox.destroy();
-        lightbox = null;
-    }
-}
-// ---------- Profile photos (paginated) ----------
-type Slide = { src: string; msrc: string; width: number; height: number };
-
-let photos: Attachment[] = [];
-let photosSlug: string | null = null;
-let photosPage = 0;
-let photosLastPage = 1;
-let isFetchingPage = false;
-let firstPagePromise: Promise<void> | null = null;
-let generation = 0; // invalidates in-flight requests when another profile is opened
-
-let lightbox: PhotoSwipeLightbox | null = null;
-let slides: Slide[] = [];          // the array PhotoSwipe reads from (mutated in place)
-let usingPlaceholder = false;      // true while the gallery shows only the avatar
-let syncThumbs: (() => void) | null = null;
-
-function toSlide(a: Attachment): Slide {
-    return {
-        src: a.url,
-        msrc: a.thumbnail_url || a.url,
-        width: a.width || 1000,
-        height: a.height || 1000,
-    };
-}
-
-function resetPhotos(slug: string) {
-    generation++;
-    photos = [];
-    photosSlug = slug;
-    photosPage = 0;
-    photosLastPage = 1;
-    isFetchingPage = false;
-    firstPagePromise = null;
-}
-
-async function fetchPhotosPage(slug: string, page: number): Promise<Attachment[] | null> {
-    const gen = generation;
-    isFetchingPage = true;
-    try {
-        const res = await getProfilePhotos(slug, page);
-        if (gen !== generation) return null; // another profile was opened meanwhile
-        photosPage = res.meta?.current_page ?? page;
-        photosLastPage = res.meta?.last_page ?? page;
-        return (res.data ?? []).filter(p => p && p.url);
-    } catch (e) {
-        console.error('Failed to load profile images:', e);
-        return null;
-    } finally {
-        if (gen === generation) isFetchingPage = false;
-    }
-}
-
-/** Starts loading page 1 (once). Safe to call many times. */
-function startFirstPage(slug: string): Promise<void> {
-    if (firstPagePromise) return firstPagePromise;
-
-    firstPagePromise = fetchPhotosPage(slug, 1).then(atts => {
-        if (atts === null) {
-            firstPagePromise = null; // allow retry on next click
-            return;
-        }
-        photos = atts;
-
-        // Gallery already open on the placeholder avatar -> swap in the real photos
-        if (lightbox?.pswp && usingPlaceholder && atts.length > 0) {
-            usingPlaceholder = false;
-            slides.splice(0, slides.length, ...atts.map(toSlide));
-            refreshGallery(true);
-        }
-    });
-    return firstPagePromise;
-}
-
-async function loadNextPage() {
-    if (isFetchingPage || usingPlaceholder || !photosSlug) return;
-    if (photosPage >= photosLastPage) return;
-
-    const atts = await fetchPhotosPage(photosSlug, photosPage + 1);
-    if (!atts || atts.length === 0) return;
-
-    photos = [...photos, ...atts];
-    slides.push(...atts.map(toSlide));
-    refreshGallery(false);
-}
-
-/** Tells PhotoSwipe + thumbnail bar that `slides` changed. */
-function refreshGallery(includeCurrent: boolean) {
-    const pswp: any = lightbox?.pswp;
-    if (!pswp) return;
-
-    syncThumbs?.();
-
-    const cur = pswp.currIndex as number;
-    const indexes = includeCurrent ? [cur, cur - 1, cur + 1] : [cur - 1, cur + 1];
-    for (const i of indexes) {
-        if (i >= 0 && i < slides.length) pswp.refreshSlideContent(i);
-    }
-    pswp.updateSize?.(true);
-}
-
 function handleAvatarClick() {
-    if (chat.value?.profile_photo == null) return;
-
-    const slug = chatSlug.value || chat.value?.slug;
-    if (!slug) return;
-
-    if (photosSlug !== slug) resetPhotos(slug);
-    startFirstPage(slug); // no await: gallery opens immediately
-    openGallery();
-}
-
-function openGallery() {
-    destroyPhotoSwipe();
-
-    if (photos.length > 0) {
-        usingPlaceholder = false;
-        slides = photos.map(toSlide);
-    } else {
-        // Page 1 not here yet: show the avatar now, replace when it arrives
-        usingPlaceholder = true;
-        const avatar = chat.value?.profile_photo || '/storage/default-profile.png';
-        slides = [{ src: avatar, msrc: avatar, width: 800, height: 800 }];
-    }
-
-    lightbox = new PhotoSwipeLightbox({
-        dataSource: slides, // same array reference, so pushes are picked up
-        pswpModule: () => import('photoswipe'),
-
-        showHideAnimationType: 'fade',
-        showAnimationDuration: 300,
-        hideAnimationDuration: 200,
-
-        initialZoomLevel: 'fit',
-        secondaryZoomLevel: 1.5,
-        maxZoomLevel: 4,
-
-        imageClickAction: 'zoom-or-close',
-        tapAction: 'toggle-controls',
-        doubleTapAction: 'zoom',
-        wheelToZoom: true,
-        pinchToClose: true,
-        closeOnVerticalDrag: true,
-
-        padding: { top: 20, bottom: 90, left: 20, right: 20 },
-        bgOpacity: 0.9,
-    });
-
-    lightbox.on('loadError', ({ content }: any) => {
-        console.error('[PhotoSwipe] failed to load:', content?.data?.src);
-    });
-
-    lightbox.on('uiRegister', () => {
-        lightbox?.pswp?.ui?.registerElement({
-            name: 'custom-thumbnails-bar',
-            order: 9,
-            isButton: false,
-            appendTo: 'wrapper',
-            onInit: (el, pswp) => {
-                el.className = 'pswp__custom-thumbnails-bar';
-
-                const container = document.createElement('div');
-                container.className = 'dark pswp__thumb-container scrollable-x';
-                el.appendChild(container);
-
-                let lastActiveIndex = pswp.currIndex;
-                const updateActive = (scrollToActive = true) => {
-                    container.querySelectorAll<HTMLElement>('.pswp__thumb-item').forEach((btn, i) => {
-                        const active = i === pswp.currIndex;
-                        btn.classList.toggle('active', active);
-                        if (active && scrollToActive) {
-                            container.scrollTo({
-                                left: btn.offsetLeft - container.clientWidth / 2 + btn.offsetWidth / 2,
-                                behavior: 'smooth',
-                            });
-                        }
-                    });
-                };
-
-                // (Re)build the strip from the current `slides`
-                syncThumbs = () => {
-                    const previousScrollLeft = container.scrollLeft;
-                    container.innerHTML = '';
-                    slides.forEach((s, index) => {
-                        const btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.className = 'pswp__thumb-item';
-
-                        const img = document.createElement('img');
-                        img.src = s.msrc;
-                        img.alt = `Thumbnail ${index + 1}`;
-                        btn.appendChild(img);
-
-                        btn.addEventListener('click', (e) => {
-                            e.stopPropagation();
-                            pswp.goTo(index);
-                        });
-                        container.appendChild(btn);
-                    });
-                    el.style.display = slides.length > 1 ? '' : 'none';
-                    container.scrollLeft = previousScrollLeft;
-                    updateActive(false);
-                };
-
-                // Load next page when the strip is scrolled near its end
-                container.addEventListener('scroll', () => {
-                    const nearEnd = container.scrollLeft + container.clientWidth >= container.scrollWidth - 120;
-                    if (nearEnd) loadNextPage();
-                }, { passive: true });
-
-                pswp.on('change', () => {
-                    const indexChanged = pswp.currIndex !== lastActiveIndex;
-                    lastActiveIndex = pswp.currIndex;
-                    updateActive(indexChanged);
-                    if (pswp.currIndex >= slides.length - 3) loadNextPage();
-                });
-
-                syncThumbs();
-            },
-        });
-    });
-
-    lightbox.on('destroy', () => {
-        syncThumbs = null;
-    });
-
-    lightbox.init();
-    lightbox.loadAndOpen(0);
+    profileImageGallery.value?.openForProfile(
+        chatSlug.value || chat.value?.slug || '',
+        chat.value?.profile_photo,
+    );
 }
 
 function formatDate(date?: string | null): string {
@@ -353,9 +122,8 @@ function handleBlockUser(): void {
     console.log('Block user:', chat.value?.direct_user_id);
 }
 
-onUnmounted(() => {
-    destroyPhotoSwipe();
-});
+// onUnmounted(() => {
+// });
 
 defineExpose({
     open,
@@ -367,6 +135,7 @@ defineExpose({
 
 <template>
     <Modal ref="modal" width-class="max-w-[500px] w-[90%]" height-class="h-[70%]">
+        <ProfileImageGallery ref="profileImageGallery" />
         <div @keyup.escape="close()" class="relative flex flex-col h-full max-h-[95vh]">
             <!-- Close -->
             <button type="button" @click="close"
@@ -380,7 +149,7 @@ defineExpose({
                 <!-- Avatar: click loads all profile photos and opens the gallery -->
                 <button type="button" @click="handleAvatarClick"
                     class="block rounded-full overflow-hidden focus:outline-none"
-                    :class="{ 'opacity-70': isLoadingPhotos, 'cursor-pointer': chat?.profile_photo != null }"
+                    :class="{ 'cursor-pointer': chat?.profile_photo != null }"
                     aria-label="View profile photos">
                     <Avatar class="w-20 h-20 pointer-events-none"
                         :src="chat?.profile_photo || '/storage/default-profile.png'" />
@@ -646,59 +415,3 @@ defineExpose({
         </div>
     </Modal>
 </template>
-
-<style>
-.pswp__custom-thumbnails-bar {
-    position: absolute;
-    bottom: 12px;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    z-index: 1050;
-    pointer-events: auto;
-}
-
-.pswp__thumb-container {
-    position: relative;
-    /* needed so offsetLeft is relative to the strip */
-    display: flex;
-    gap: 8px;
-    padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    border-radius: 12px;
-    max-width: 90vw;
-    overflow-x: auto;
-}
-
-.pswp__thumb-item {
-    position: relative;
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
-    border-radius: 8px;
-    overflow: hidden;
-    border: 2px solid transparent;
-    opacity: 0.6;
-    padding: 0;
-    background: transparent;
-    cursor: pointer;
-    transition: opacity 0.2s ease, border-color 0.2s ease;
-}
-
-.pswp__thumb-item:hover {
-    opacity: 0.9;
-}
-
-.pswp__thumb-item.active {
-    opacity: 1;
-    border-color: #3b82f6;
-}
-
-.pswp__thumb-item img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-</style>

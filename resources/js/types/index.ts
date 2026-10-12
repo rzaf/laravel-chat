@@ -43,6 +43,17 @@ export interface Chat {
     description?: string | null;
     members_count?: number;
     owner_id?: number | null;
+    // is_online: boolean;
+    // is_pinned: boolean;
+
+    pinned: boolean;
+    muted: boolean;
+    archived: boolean;
+    is_online: boolean;
+    is_typing: boolean;
+    draft: string | null;
+    last_message_is_mine: boolean;
+    last_message_status: 'sent' | 'delivered' | 'seen';
 }
 
 export interface Attachment {

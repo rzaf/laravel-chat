@@ -129,7 +129,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <form class="relative z-50 w-full flex items-end gap-1 p-2 shrink-0" @submit.prevent="submit">
+    <form class="relative z-50 w-full flex items-end gap-1 p-2 shrink-0 bg-white dark:bg-gray-800" @submit.prevent="submit">
 
         <EmojiAutoPicker ref="autoPickerRef" v-model="model" @select="replaceTextWithEmoji" />
 

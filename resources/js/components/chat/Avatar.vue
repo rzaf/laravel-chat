@@ -9,7 +9,7 @@ const loaded = ref(false);
 </script>
 
 <template>
-    <div class="relative mr-3 rounded-full overflow-hidden bg-gray-200 shrink-0">
+    <div class="relative rounded-full overflow-hidden bg-gray-200 shrink-0">
         <div
             v-if="!loaded"
             class="absolute inset-0 animate-pulse bg-gray-300"

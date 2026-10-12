@@ -73,7 +73,7 @@ function handleLogout(): void {
             @toggle-menu="showSidebar = !showSidebar"
         />
 
-        <div class="w-full h-full relative" :class="{ 'max-lg:hidden': chat.currentChat == null }">
+        <div class="w-full h-full relative bg-gray-100 dark:bg-gray-900" :class="{ 'max-lg:hidden': chat.currentChat == null }">
             <div v-if="chat.currentChat == null" class="flex flex-col items-center justify-center w-full h-full">
                 <h2 class="text-lg italic font-light">
                     {{ pageNotFound ? 'page not found !!!' : 'no chat is selected' }}

@@ -16,6 +16,10 @@ import Avatar from './Avatar.vue';
 
 const props = defineProps<{ chat: Chat }>();
 
+const emit = defineEmits<{
+    (e: 'openChatProfile', chat: Chat): void;
+}>();
+
 const auth = useAuthStore();
 const chatStore = useChatStore();
 const selfId = computed(() => auth.user?.id);
@@ -23,31 +27,44 @@ const selfId = computed(() => auth.user?.id);
 const listRef = useTemplateRef<HTMLElement>('listRef');
 const draft = ref('');
 const attachments = ref<File[]>([]);
+const sending = ref(false);
 
-const sending = ref(false)
-
-const { messages, timeline, isChatEmpty, userExists, loadInitial, loadOlder, send, append } =
-    useMessages();
-const { showGoToBottom, scrollToBottom, isAtTop, isNearBottom, updateGoToBottom, preserveOnPrepend } =
-    useMessageScroll(listRef);
+const { messages, timeline, isChatEmpty, userExists, loadInitial, loadOlder, send, append } = useMessages();
+const { showGoToBottom, scrollToBottom, isAtTop, isNearBottom, updateGoToBottom, preserveOnPrepend } = useMessageScroll(listRef);
 const { markRead } = useReadReceipts((chatId) => chatStore.decrementUnseen(chatId));
+
+/** Optional fields we may add to `Chat` later (presence, typing). */
+type ChatPresence = { is_online?: boolean; is_typing?: boolean };
+const presence = computed(() => props.chat as Chat & ChatPresence);
+const statusText = computed(() => {
+    if (presence.value.is_typing) return 'typing…';
+    if (presence.value.is_online) return 'online';
+    return '';
+});
 
 type Row =
     | { kind: 'date'; key: string; label: string }
-    | { kind: 'message'; key: string | number; text: string; time: string; isSent: boolean; attachments?: Attachment[]};
+    | {
+        kind: 'message';
+        key: string | number;
+        text: string;
+        time: string;
+        isSent: boolean;
+        attachments?: Attachment[];
+    };
 
 const rows = computed<Row[]>(() =>
     timeline.value.map((item, index) =>
         isDateSeparator(item)
             ? { kind: 'date', key: `date-${index}`, label: item.label }
             : {
-                  kind: 'message',
-                  key: item.id ?? `m-${index}`,
-                  text: item.content,
-                  time: item.created_at,
-                  isSent: messageSenderId(item) === selfId.value,
-                  attachments: item.attachments,
-              },
+                kind: 'message',
+                key: item.id ?? `m-${index}`,
+                text: item.content,
+                time: item.created_at,
+                isSent: messageSenderId(item) === selfId.value,
+                attachments: item.attachments,
+            },
     ),
 );
 
@@ -84,24 +101,22 @@ async function handleScroll(): Promise<void> {
 }
 
 async function handleSend(): Promise<void> {
-    console.log('handleSend: ', userExists.value)
     const content = draft.value.trim();
     const slug = props.chat.slug;
-    if (
-        !slug ||
-        userExists.value === false ||
-        (!content && attachments.value.length === 0)
-    ) {
+    if (!slug || userExists.value === false || (!content && attachments.value.length === 0)) {
         return;
     }
-    // if (!content || !slug || userExists.value === false) {
-    //     return;
-    // }
     sending.value = true;
     try {
         const message = await send(slug, content, attachments.value);
         if (props.chat.id == null) {
-            chatStore.addChat(message?.chat?.id || 0, slug, message?.chat?.name || slug, content, props.chat.direct_user_id);
+            chatStore.addChat(
+                message?.chat?.id || 0,
+                slug,
+                message?.chat?.name || slug,
+                content,
+                props.chat.direct_user_id,
+            );
             chatStore.selectChatBySlug(slug);
         }
         draft.value = '';
@@ -134,83 +149,120 @@ watch(
     },
 );
 
-const emit = defineEmits<{
-    (e: 'openChatProfile', chat: Chat ): void;
-}>();
+type MessageRow = Extract<Row, { kind: 'message' }>;
 
+const groups = computed(() => {
+    const out: { key: string; label: string; messages: MessageRow[] }[] = [];
+    for (const row of rows.value) {
+        if (row.kind === 'date') {
+            out.push({ key: row.key, label: row.label, messages: [] });
+        } else {
+            if (!out.length) out.push({ key: 'start', label: '', messages: [] });
+            out[out.length - 1].messages.push(row);
+        }
+    }
+    return out;
+});
 
 </script>
 
 <template>
-    <div class="flex flex-col h-full min-h-0">
-
-        <div id="top-profile" class="z-10 flex items-center px-2 py-3 align-middle border-b border-gray-200 dark:border-gray-600 h-14">
-            <RouterLink to="/">
-                <BackArrowIcon
-                    class="px-2 py-1 mr-2 cursor-pointer lg:hidden rounded-2xl fill-gray-500 hover:bg-slate-300 w-[45px] h-[45px]"
-                />
+    <div class="relative flex flex-col h-full min-h-0">
+        <!-- Header -->
+        <header id="top-profile"
+            class="z-10 flex items-center h-16 gap-1 px-3 bg-white border-b border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+            <RouterLink to="/" aria-label="Back to chats"
+                class="grid cursor-pointer transition-colors rounded-full lg:hidden size-10 place-items-center hover:bg-gray-200 dark:hover:bg-gray-700">
+                <BackArrowIcon class="size-6 fill-gray-500 dark:fill-gray-300" />
             </RouterLink>
 
-            <div @click="emit('openChatProfile', chat)" class="w-fit flex align-middle items-center cursor-pointer">
-                <Avatar class="w-10 h-10 mr-3" :src="chat.profile_photo || '/storage/default-profile.png'"></Avatar>
-                <div class="flex flex-col">
-                    <h3 class="text-xl font-normal">{{ chat.name ?? chat.slug }}</h3>
-                    <p class="text-sm">@{{ chat.slug }}</p>
-                </div>
+            <button type="button"
+                class="cursor-pointer flex items-center min-w-0 gap-2 px-2 py-1 text-left transition-colors rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                @click="emit('openChatProfile', chat)">
+                <Avatar class="size-10 shrink-0" :src="chat.profile_photo || '/storage/default-profile.png'" />
+                <span class="flex flex-col min-w-0">
+                    <span class="text-base font-medium leading-tight text-gray-900 truncate dark:text-gray-100">
+                        {{ chat.name ?? chat.slug }}
+                    </span>
+                    <span
+                        class="flex items-center gap-1.5 text-sm leading-tight text-gray-500 truncate dark:text-gray-400">
+                        <span class="truncate">@{{ chat.slug }}</span>
+                        <template v-if="statusText">
+                            <span aria-hidden="true">·</span>
+                            <span class="text-blue-600 dark:text-blue-400">{{ statusText }}</span>
+                        </template>
+                    </span>
+                </span>
+            </button>
+        </header>
+
+        <!-- Jump to latest -->
+        <Transition enter-from-class="opacity-0 translate-y-2" enter-active-class="transition duration-150"
+            leave-to-class="opacity-0 translate-y-2" leave-active-class="transition duration-150">
+            <button v-show="showGoToBottom" type="button" aria-label="Scroll to latest message"
+                class="absolute cursor-pointer z-30 grid bg-white rounded-full shadow-lg left-4 bottom-24 size-11 place-items-center dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                @click="scrollToBottom(true)">
+                <ChevronDownIcon class="size-7 fill-gray-700 dark:fill-gray-200" />
+                <span v-show="(chat.unseen_messages_count ?? 0) > 0"
+                    class="absolute grid px-1.5 text-xs font-medium text-white bg-blue-600 rounded-full -top-2 -right-1 min-w-5 h-5 place-items-center">
+                    {{ chat.unseen_messages_count }}
+                </span>
+            </button>
+        </Transition>
+
+        <!-- Loading: waiting on the first page of messages -->
+        <div v-if="userExists === null && !hasMessages" class="flex items-center justify-center flex-1">
+            <div class="flex items-center justify-center space-x-2" role="status" aria-label="Loading messages">
+                <span style="animation-delay: -300ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
+                <span style="animation-delay: -200ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
+                <span style="animation-delay: -100ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
             </div>
         </div>
 
-        <div
-            v-show="showGoToBottom"
-            class="absolute z-90 flex items-center justify-center w-10 h-10 bg-white rounded-lg shadow-lg cursor-pointer dark:bg-gray-900 left-4 bottom-20"
-            @click="scrollToBottom(true)"
-        >
-            <ChevronDownIcon class="fill-black dark:fill-gray-400 w-8 h-8" />
-            <p
-                v-show="(chat.unseen_messages_count ?? 0) > 0"
-                class="absolute p-1 text-lg text-white -translate-x-1/2 bg-blue-500 rounded-full left-1/2 bottom-8"
-            >
-                {{ chat.unseen_messages_count }}
+        <!-- Empty conversation or unknown user -->
+        <div v-else-if="isChatEmpty === true || userExists === false"
+            class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
+            <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
+            <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
+                {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug} yet` }}
+            </h2>
+            <p v-if="userExists !== false" class="text-sm text-gray-500 dark:text-gray-400">
+                Say hello to start the conversation.
             </p>
         </div>
 
-        <!-- Loading: waiting on the first page of messages. -->
-        <div
-            v-if="userExists === null && !hasMessages"
-            class="relative flex items-center justify-center w-full h-full pt-3 bg-gray-200 dark:bg-gray-800"
-        >
-            <div class="flex items-center justify-center space-x-2">
-                <span style="animation-delay: -300ms" class="w-3 h-3 bg-gray-400 rounded-full animate-bounce"></span>
-                <span style="animation-delay: -200ms" class="w-3 h-3 bg-gray-400 rounded-full animate-bounce"></span>
-                <span style="animation-delay: -100ms" class="w-3 h-3 bg-gray-400 rounded-full animate-bounce"></span>
-            </div>
-        </div>
-
-        <!-- Empty conversation or unknown user. -->
-        <div
-            v-else-if="isChatEmpty === true || userExists === false"
-            class="flex flex-col items-center justify-center w-full h-full bg-gray-200 dark:bg-gray-800"
-        >
-            <h2 class="px-3 py-1 text-lg italic font-light bg-gray-300 rounded-lg dark:bg-gray-600 dark:text-gray-300">
-                {{ userExists === false ? 'User does not exist' : 'Start Chat' }}
-            </h2>
-        </div>
-
-        <!-- Message timeline. -->
-        <div
-            v-else
-            ref="listRef"
-            class="w-full flex-1 min-h-0 overflow-y-auto pt-3 bg-gray-200 scrollable dark:bg-gray-800 "
-            @scroll="handleScroll"
-        >
-            <template v-for="row in rows" :key="row.key">
-                <div v-if="row.kind === 'date'" class="flex items-center justify-center py-1">
-                    <span class="px-3 py-1 text-gray-200 bg-gray-700 rounded-lg">{{ row.label }}</span>
+        <!-- Message timeline -->
+        <div v-else ref="listRef" role="log" aria-live="polite"
+            class="flex-1 w-full min-h-0 px-1 pt-3 pb-2 overflow-y-auto scrollable" @scroll="handleScroll">
+            <!-- <template v-for="row in rows" :key="row.key">
+                <div v-if="row.kind === 'date'" class="sticky z-10 flex justify-center py-1.5 top-1">
+                    <span
+                        class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200">
+                        {{ row.label }}
+                    </span>
                 </div>
-                <MessageBubble v-else :message="row.text" :time="row.time" :is-sent="row.isSent" :attachments="row.attachments"/>
-            </template>
+                <MessageBubble v-else :message="row.text" :time="row.time" :is-sent="row.isSent"
+                    :attachments="row.attachments" />
+            </template> -->
+            <section v-for="group in groups" :key="group.key">
+                <div v-if="group.label" class="sticky z-40 flex justify-center py-1.5 top-1">
+                    <span
+                        class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200"
+                    >
+                        {{ group.label }}
+                    </span>
+                </div>
+                <MessageBubble
+                    v-for="row in group.messages"
+                    :key="row.key"
+                    :message="row.text"
+                    :time="row.time"
+                    :is-sent="row.isSent"
+                    :attachments="row.attachments"
+                />
+            </section>
         </div>
 
-        <MessageComposer :sending="sending" v-model="draft" :attachments="attachments" @send="handleSend" />
+        <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
     </div>
 </template>

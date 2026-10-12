@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { RouterLink } from 'vue-router';
+import { onKeyStroke } from '@vueuse/core';
 import { useConfirm } from '@/composables/useConfirm';
 import ThreeDotsIcon from '@/assets/svgs/ThreeDots.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
@@ -20,74 +21,85 @@ const emit = defineEmits<{
 const isMenuOpen = ref(false);
 const { confirm } = useConfirm();
 
+onKeyStroke('Escape', () => {
+    if (isMenuOpen.value) isMenuOpen.value = false;
+});
+
+function openEdit(): void {
+    isMenuOpen.value = false;
+    emit('openEditContactModal', props.contact.user.username, props.contact.name);
+}
+
+function openChat(): void {
+    isMenuOpen.value = false;
+    emit('closeContactsModals');
+}
+
 function requestDelete(): void {
     isMenuOpen.value = false;
     confirm(`Are you sure you want to delete ${props.contact.user.username}?`, () =>
         emit('deleteContact', props.contact.user.username),
     );
 }
+
+const menuItem =
+    'flex items-center w-full gap-3 px-3 py-2 text-sm text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-600';
 </script>
 
 <template>
-    <RouterLink
-        :to="`/users/${contact.user.username}`"
-        class="relative flex items-center px-2 py-3 align-middle border-b border-gray-100 cursor-pointer dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700"
-        @click="emit('closeContactsModals')"
-    >
-        <Avatar class="w-12 h-12 mr-2" :src="contact.user.profile_photo || '/storage/default-profile.png'"></Avatar>
+    <!-- The row is a div (not a link) so the menu button isn't nested inside an <a>. -->
+    <div class="relative flex items-center pr-2 transition-colors rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700"
+        :class="{ 'z-50': isMenuOpen }">
+        <RouterLink :to="`/users/${contact.user.username}`"
+            class="flex items-center flex-1 min-w-0 gap-3 px-2 py-2.5 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            @click="openChat">
+            <Avatar class="size-12 shrink-0" :src="contact.user.profile_photo || '/storage/default-profile.png'" />
+            <span class="flex flex-col min-w-0">
+                <span class="text-base font-medium text-gray-900 truncate dark:text-gray-100">
+                    {{ contact.name || contact.user.name || '' }}
+                </span>
+                <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ contact.user.username }}</span>
+            </span>
+        </RouterLink>
 
-        <div class="flex items-center w-full">
-            <div class="flex flex-col w-full h-full overflow-hidden">
-                <h3 class="text-lg font-normal truncate">{{ contact.name || contact.user.name || '' }}</h3>
-                <p class="py-1 text-sm truncate">@{{ contact.user.username }}</p>
-            </div>
+        <div class="relative">
+            <button type="button" aria-label="Contact options" aria-haspopup="menu" :aria-expanded="isMenuOpen"
+                class="grid transition-colors rounded-full size-9 place-items-center hover:bg-gray-200 dark:hover:bg-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                @click.stop.prevent="isMenuOpen = !isMenuOpen">
+                <ThreeDotsIcon class="size-5 fill-gray-500 dark:fill-gray-300" />
+            </button>
 
-            <div class="relative ml-auto mr-4" @click.stop.prevent="isMenuOpen = true">
-                <ThreeDotsIcon
-                    class="p-2 rounded-md w-9 h-9 fill-gray-500 hover:bg-gray-300 dark:hover:bg-gray-600 dark:fill-gray-300"
-                />
-
-                <div
-                    v-show="isMenuOpen"
-                    class="absolute top-0 z-[800] flex flex-col bg-white rounded-lg shadow-lg right-full dark:bg-gray-600"
-                >
-                    <ul>
-                        <li>
-                            <a href="/users/{{contact.user.username}}" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                                <ForwardIcon class="w-4 h-4 mr-2" />
-                                Open
-                            </a>
-                        </li>
-                        <li>
-                            <a
-                                class="flex items-center p-2 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-500"
-                                @click.stop.prevent="
-                                    isMenuOpen = false;
-                                    emit('openEditContactModal', contact.user.username, contact.name)
-                                "
-                            >
-                                <EditIcon class="w-4 h-4 mr-2" />
-                                Edit
-                            </a>
-                        </li>
-                        <li>
-                            <a
-                                class="flex items-center p-2 cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-500"
-                                @click.stop.prevent="requestDelete"
-                            >
-                                <TrashIcon class="w-4 h-4 mr-2" />
-                                Delete
-                            </a>
-                        </li>
-                    </ul>
-                </div>
-            </div>
+            <Transition enter-from-class="opacity-0 scale-95"
+                enter-active-class="transition duration-100 origin-top-right" leave-to-class="opacity-0 scale-95"
+                leave-active-class="transition duration-75 origin-top-right">
+                <ul v-show="isMenuOpen" role="menu"
+                    class="absolute top-0 z-[800] py-1 overflow-hidden bg-white border border-gray-100 shadow-lg right-full mr-1 min-w-36 rounded-xl dark:bg-gray-700 dark:border-gray-600">
+                    <li role="none">
+                        <RouterLink role="menuitem" :to="`/users/${contact.user.username}`" :class="menuItem"
+                            @click="openChat">
+                            <ForwardIcon class="size-4" />
+                            Open
+                        </RouterLink>
+                    </li>
+                    <li role="none">
+                        <button type="button" role="menuitem" :class="menuItem" @click.stop.prevent="openEdit">
+                            <EditIcon class="size-4" />
+                            Edit
+                        </button>
+                    </li>
+                    <li role="none" class="mt-1 border-t border-gray-100 dark:border-gray-600">
+                        <button type="button" role="menuitem" :class="[menuItem, 'text-red-600 dark:text-red-400']"
+                            @click.stop.prevent="requestDelete">
+                            <TrashIcon class="size-4" />
+                            Delete
+                        </button>
+                    </li>
+                </ul>
+            </Transition>
         </div>
 
-        <div
-            v-show="isMenuOpen"
-            class="fixed inset-0 z-40 w-full h-full"
-            @click.stop.prevent="isMenuOpen = false"
-        ></div>
-    </RouterLink>
+        <!-- Click-away layer -->
+        <div v-show="isMenuOpen" class="fixed inset-0 z-40" aria-hidden="true" @click.stop.prevent="isMenuOpen = false">
+        </div>
+    </div>
 </template>
