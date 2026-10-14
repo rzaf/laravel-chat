@@ -1,5 +1,6 @@
 import { useDateFormat } from '@vueuse/core';
 import type { ChatTimelineItem, Message } from '@/types';
+import { formattedTimestamp } from './time';
 
 /**
  * Turn a chronological list of messages into a timeline with day dividers
@@ -14,7 +15,8 @@ export function groupMessagesByDate(messages: Message[]): ChatTimelineItem[] {
         if (day !== lastDay) {
             timeline.push({
                 type: 'date',
-                label: useDateFormat(message.created_at, 'MMMM D, YYYY').value,
+                // label: useDateFormat(message.created_at, 'MMMM D, YYYY').value,
+                label: formattedTimestamp(message.created_at, new Date(), true, ),
             });
             lastDay = day;
         }

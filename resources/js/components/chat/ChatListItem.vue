@@ -93,7 +93,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
 
                     <MuteXIcon v-if="chat.muted" class="size-4 shrink-0 opacity-50" stroke-width="2" />
 
-                    <time class="ml-auto text-xs whitespace-nowrap"
+                    <time class="ml-auto text-xs whitespace-nowrap" dir="rtl"
                         :class="isActive ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'">
                         {{ chat.last_message_created_at ? formattedTimestamp(chat.last_message_created_at) : '' }}
                     </time>

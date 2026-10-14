@@ -247,6 +247,7 @@ const groups = computed(() => {
             <section v-for="group in groups" :key="group.key">
                 <div v-if="group.label" class="sticky z-40 flex justify-center py-1.5 top-1">
                     <span
+                        dir="rtl"
                         class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200"
                     >
                         {{ group.label }}

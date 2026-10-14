@@ -129,7 +129,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
         </div>
 
         <!-- List -->
-        <div id="chat-list" class="flex flex-col flex-1 min-h-0 border-t border-gray-100 scrollable dark:border-gray-700">
+        <div id="chat-list" class="flex flex-col flex-1 pt-1 pb-2 min-h-0 border-t border-gray-100 scrollable dark:border-gray-700">
             <!-- Loading skeleton -->
             <template v-if="chatStore.isLoading">
                 <div v-for="n in 6" :key="n" class="flex items-center w-full gap-3 px-3 py-3" aria-hidden="true">
