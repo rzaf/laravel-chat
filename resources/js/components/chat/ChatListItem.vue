@@ -66,10 +66,10 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
 
 <template>
     <div class="px-2 py-0.5">
-        <RouterLink :to="`/users/${chat.slug}`" :aria-current="isActive ? 'page' : undefined"
+        <RouterLink :to="`/users/${chat.slug}`"
             class="relative flex items-center gap-3 px-2.5 py-2.5 transition-colors rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             :class="isActive
-                ? 'bg-blue-600 text-white'
+                ? 'lg:bg-blue-600 lg:text-white'
                 : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                 " @contextmenu.prevent="open">
             <!-- Avatar + presence -->
@@ -77,7 +77,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                 <Avatar class="w-13 h-13" :src="chat.profile_photo || '/storage/default-profile.png'" />
                 <span v-if="chat.is_online"
                     class="absolute bottom-0 right-1.5 bg-green-500 border-4 rounded-full size-4.5"
-                    :class="isActive ? 'border-blue-600' : 'border-white dark:border-gray-800'" title="Online"></span>
+                    :class="isActive ? 'lg:border-blue-600' : 'border-white dark:border-gray-800'" title="Online"></span>
             </div>
             <!-- <PinIcon v-if="chat.pinned" class="size-3 absolute top-1 right-1 rotate-45 opacity-60" /> -->
 
@@ -94,7 +94,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                     <MuteXIcon v-if="chat.muted" class="size-4 shrink-0 opacity-50" stroke-width="2" />
 
                     <time class="ml-auto text-xs whitespace-nowrap" dir="rtl"
-                        :class="isActive ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'">
+                        :class="isActive ? 'lg:text-blue-100' : 'text-gray-500 dark:text-gray-400'">
                         {{ chat.last_message_created_at ? formattedTimestamp(chat.last_message_created_at) : '' }}
                     </time>
                 </div>
@@ -115,7 +115,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                 <!-- Row 2: preview + badges -->
                 <div class="flex items-center gap-2">
                     <p class="text-sm truncate" :class="isActive
-                        ? 'text-blue-100'
+                        ? 'lg:text-blue-100'
                         : chat.is_typing
                             ? 'text-blue-600 dark:text-blue-400'
                             : 'text-gray-500 dark:text-gray-400'
@@ -133,7 +133,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                         </svg> -->
                         <span v-if="unseen > 0"
                             class="grid px-1.5 text-xs font-medium rounded-full min-w-5 h-5 place-items-center" :class="isActive
-                                ? 'bg-white text-blue-600'
+                                ? 'lg:bg-white lg:text-blue-600'
                                 : chat.muted
                                     ? 'bg-gray-400 text-white'
                                     : 'bg-blue-600 text-white'

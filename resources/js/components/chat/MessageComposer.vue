@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, useTemplateRef, watch, ref, computed } from 'vue';
+import { nextTick, onMounted, useTemplateRef, watch, computed } from 'vue';
 import PaperClipIcon from '@/assets/svgs/PaperClip.svg';
 import MusicIcon from '@/assets/svgs/Music.svg';
 import VideoIcon from '@/assets/svgs/Video.svg';
@@ -77,7 +77,7 @@ function replaceTextWithEmoji(payload: { emoji: string; start: number; length: n
 
     nextTick(() => {
         const newPos = payload.start + payload.emoji.length + 1;
-        el.focus();
+        el.focus({ preventScroll: true });
         el.setSelectionRange(newPos, newPos);
         autoResize();
     });
@@ -95,7 +95,7 @@ function handleEmojiSelect(emoji: string): void {
 
     nextTick(() => {
         const newPos = start + emoji.length;
-        el.focus();
+        el.focus({ preventScroll: true });
         el.setSelectionRange(newPos, newPos);
         autoResize();
     });
@@ -115,7 +115,7 @@ watch(model, (value) => {
             if (textareaRef.value) {
                 textareaRef.value.style.height = '40px';
                 requestAnimationFrame(() => {
-                    textareaRef.value?.focus();
+                    textareaRef.value?.focus({ preventScroll: true });
                 });
             }
         });
@@ -124,7 +124,7 @@ watch(model, (value) => {
 
 
 onMounted(() => {
-    textareaRef.value?.focus();
+    textareaRef.value?.focus({ preventScroll: true });
 });
 </script>
 

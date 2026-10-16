@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useTemplateRef, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import useAuthStore from '@/stores/auth';
 import useChatStore from '@/stores/chat';
 import { useMessages } from '@/composables/useMessages';
@@ -13,8 +13,10 @@ import MessageComposer from '@/components/chat/MessageComposer.vue';
 import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
 import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
 import Avatar from './Avatar.vue';
+import { onKeyStroke } from '@vueuse/core';
 
 const props = defineProps<{ chat: Chat }>();
+const router = useRouter();
 
 const emit = defineEmits<{
     (e: 'openChatProfile', chat: Chat): void;
@@ -164,6 +166,10 @@ const groups = computed(() => {
     return out;
 });
 
+onKeyStroke('Escape', () => {
+    router.push('/');
+});
+
 </script>
 
 <template>
@@ -209,6 +215,13 @@ const groups = computed(() => {
                 </span>
             </button>
         </Transition>
+
+        <Transition
+    name="chat-section"
+    mode="out-in"
+>
+    <div :key="chat.slug" class="flex flex-col flex-1 min-h-0">
+
 
         <!-- Loading: waiting on the first page of messages -->
         <div v-if="userExists === null && !hasMessages" class="flex items-center justify-center flex-1">
@@ -263,7 +276,29 @@ const groups = computed(() => {
                 />
             </section>
         </div>
+    </div>
+</Transition>
 
         <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
     </div>
 </template>
+<style scoped>
+.chat-section-enter-active{
+    transition: opacity 200ms ease-in;
+}
+.chat-section-leave-active {
+    transition: opacity 350ms ease;
+}
+
+.chat-section-enter-from,
+.chat-section-leave-to {
+    opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .chat-section-enter-active,
+    .chat-section-leave-active {
+        transition: none;
+    }
+}
+</style>
