@@ -37,9 +37,11 @@ function openChat(): void {
 
 function requestDelete(): void {
     isMenuOpen.value = false;
-    confirm(`Are you sure you want to delete ${props.contact.user.username}?`, () =>
-        emit('deleteContact', props.contact.user.username),
-    );
+    confirm(`Are you sure you want to delete ${props.contact.user.username}?`).then((isConfirmed) => {
+        if (isConfirmed) {
+            emit('deleteContact', props.contact.user.username);
+        }
+    });
 }
 
 const menuItem =

@@ -1,32 +1,77 @@
 import { ref } from 'vue';
 
-interface ConfirmState {
-    isOpen: boolean;
+export type ConfirmVariant = 'danger' | 'warning' | 'info';
+
+export interface ConfirmOptions {
+    title?: string;
     message: string;
-    onConfirm: (() => void) | null;
+    confirmText?: string;
+    cancelText?: string;
+    variant?: ConfirmVariant;
 }
 
-// Module-level singleton: one confirm dialog, shared across the whole app.
-const state = ref<ConfirmState>({ isOpen: false, message: '', onConfirm: null });
+interface ConfirmState extends ConfirmOptions {
+    isOpen: boolean;
+    resolvePromise: ((value: boolean) => void) | null;
+}
 
-/**
- * App-level confirm dialog. `<ConfirmModal>` (mounted once in App.vue) renders
- * `state`; any component can trigger it via `confirm(message, onConfirm)`.
- * Replaces the previous `window.deleteModalRef` global + prop/emit plumbing.
- */
+const state = ref<ConfirmState>({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    variant: 'danger',
+    resolvePromise: null,
+});
+
 export function useConfirm() {
-    function confirm(message: string, onConfirm: () => void): void {
-        state.value = { isOpen: true, message, onConfirm };
-    }
+    /**
+     * Triggers the confirm modal and returns a Promise resolving to true (accepted) or false (cancelled).
+     */
+    function confirm(options: string | ConfirmOptions): Promise<boolean> {
+        const opts: ConfirmOptions = typeof options === 'string' ? { message: options } : options;
 
-    function close(): void {
-        state.value = { isOpen: false, message: '', onConfirm: null };
+        state.value = {
+            isOpen: true,
+            title: opts.title ?? getDefaultTitle(opts.variant),
+            message: opts.message,
+            confirmText: opts.confirmText ?? getDefaultConfirmText(opts.variant),
+            cancelText: opts.cancelText ?? 'Cancel',
+            variant: opts.variant ?? 'danger',
+            resolvePromise: null,
+        };
+
+        return new Promise((resolve) => {
+            state.value.resolvePromise = resolve;
+        });
     }
 
     function accept(): void {
-        state.value.onConfirm?.();
+        state.value.resolvePromise?.(true);
         close();
     }
 
+    function close(): void {
+        state.value.resolvePromise?.(false);
+        state.value.isOpen = false;
+    }
+
     return { state, confirm, accept, close };
+}
+
+function getDefaultTitle(variant: ConfirmVariant = 'danger'): string {
+    switch (variant) {
+        case 'danger': return 'Are you sure?';
+        case 'warning': return 'Please review';
+        case 'info': return 'Confirmation';
+    }
+}
+
+function getDefaultConfirmText(variant: ConfirmVariant = 'danger'): string {
+    switch (variant) {
+        case 'danger': return 'Delete';
+        case 'warning': return 'Proceed';
+        case 'info': return 'Continue';
+    }
 }

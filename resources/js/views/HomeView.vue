@@ -81,16 +81,17 @@ function handleLogout(): void {
         </Transition>
     </div>
 
-    <AddContactModal ref="addContactModalRef" @open-direct-chat="(username) => {
-        addContactModalRef?.close();
-        router.push(`/users/${username}`)
-    }" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)" />
-
     <EditContactModal ref="editContactModalRef" @open-contacts="(c) => {
         editContactModalRef?.close();
         addContactModalRef?.open();
         addContactModalRef?.saveContact(c);
     }" />
+    
+    <AddContactModal ref="addContactModalRef" @open-direct-chat="(username) => {
+        addContactModalRef?.close();
+        router.push(`/users/${username}`)
+    }" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)" />
+
 
     <ProfileModal ref="profileModalRef" />
 

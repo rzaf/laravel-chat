@@ -1,37 +1,81 @@
 <script setup lang="ts">
-import { useConfirm } from '@/composables/useConfirm';
+import { useConfirm, type ConfirmVariant } from '@/composables/useConfirm';
+import { onKeyStroke } from '@vueuse/core';
 
 const { state, accept, close } = useConfirm();
+
+// Dynamic styles based on variant
+const variantStyles: Record<ConfirmVariant, { button: string; ring: string }> = {
+    danger: {
+        button: 'bg-red-600 hover:bg-red-700 text-white',
+        ring: 'focus:ring-red-300 dark:focus:ring-red-800',
+    },
+    warning: {
+        button: 'bg-amber-600 hover:bg-amber-700 text-white',
+        ring: 'focus:ring-amber-300 dark:focus:ring-amber-800',
+    },
+    info: {
+        button: 'bg-blue-600 hover:bg-blue-700 text-white',
+        ring: 'focus:ring-blue-300 dark:focus:ring-blue-800',
+    },
+};
+
+onKeyStroke('Escape', (e) => {
+    if (state.value.isOpen) {
+        e.stopImmediatePropagation(); // Stops other handlers from catching it
+        close();
+    }
+});
+
 </script>
 
 <template>
-    <template v-if="state.isOpen">
-        <div class="fixed inset-0 z-[1000] w-full h-full backdrop-blur-sm bg-[#24242484]" @click="close"></div>
-
-        <div
-            class="fixed z-[10001] left-0 right-0 mx-auto top-1/3 w-[90%] max-w-md bg-white rounded-lg shadow-lg dark:bg-gray-800"
-        >
-            <div class="flex flex-col p-6 text-center">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                    {{ state.message || 'Are you sure you want to delete?' }}
-                </h2>
-                <p class="mt-2 text-gray-500 dark:text-gray-400">This action cannot be undone.</p>
-
-                <div class="flex justify-center gap-4 p-4 mt-4">
-                    <button
-                        class="px-4 py-2 text-sm font-medium text-white transition-all bg-red-600 rounded-lg hover:bg-red-700 focus:ring-4 focus:ring-red-300 dark:focus:ring-red-800"
-                        @click="accept"
-                    >
-                        Yes, Delete
-                    </button>
-                    <button
-                        class="px-4 py-2 text-sm font-medium text-gray-700 transition-all bg-gray-200 rounded-lg hover:bg-gray-300 focus:ring-4 focus:ring-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:focus:ring-gray-600"
-                        @click="close"
-                    >
-                        Cancel
-                    </button>
-                </div>
+    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0"
+        enter-to-class="opacity-100" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100"
+        leave-to-class="opacity-0">
+        <div v-if="state.isOpen" class="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+            <!-- Backdrop -->
+            <div class="fixed inset-0 w-full h-full backdrop-blur-sm bg-black/50 transition-opacity" @click="close">
             </div>
+
+            <!-- Modal Box -->
+            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="scale-95 opacity-0"
+                enter-to-class="scale-100 opacity-100" leave-active-class="transition duration-150 ease-in"
+                leave-from-class="scale-100 opacity-100" leave-to-class="scale-95 opacity-0">
+                <div
+                    class="relative z-[1001] w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
+                    <div class="flex flex-col p-6 text-center sm:text-left">
+
+                        <!-- Header / Title -->
+                        <div class="flex items-start gap-4">
+                            <div class="flex-1">
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                                    {{ state.title }}
+                                </h3>
+                                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+                                    {{ state.message }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="flex flex-col-reverse sm:flex-row justify-end gap-3 mt-6">
+                            <button type="button"
+                                class="px-4 py-2.5 text-sm font-medium text-gray-700 transition-all bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-4 focus:ring-gray-100 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 dark:focus:ring-gray-700"
+                                @click="close">
+                                {{ state.cancelText }}
+                            </button>
+
+                            <button type="button"
+                                class="px-4 py-2.5 text-sm font-medium transition-all rounded-lg focus:outline-none focus:ring-4 shadow-sm"
+                                :class="[variantStyles[state.variant!].button, variantStyles[state.variant!].ring]"
+                                @click="accept">
+                                {{ state.confirmText }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
         </div>
-    </template>
+    </Transition>
 </template>
