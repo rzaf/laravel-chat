@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import useAuthStore from '@/stores/auth';
 import useChatStore from '@/stores/chat';
@@ -21,10 +21,6 @@ const router = useRouter();
 const auth = useAuthStore();
 const chat = useChatStore();
 
-if (auth.user?.id) {
-    useChatChannel(auth.user.id);
-}
-
 const showSidebar = ref(false);
 const pageNotFound = ref(route.name === 'notFound');
 
@@ -33,7 +29,13 @@ const editContactModalRef = ref<InstanceType<typeof EditContactModal> | null>(nu
 const profileModalRef = ref<InstanceType<typeof Modal> | null>(null);
 const settingModalRef = ref<InstanceType<typeof Modal> | null>(null);
 
-chat.loadChatList();
+    
+onMounted(() => {
+    if (auth.user?.id) {
+        useChatChannel(auth.user.id);
+    }
+    chat.loadChatList();
+})
 
 watch(
     () => route.fullPath,
@@ -62,7 +64,7 @@ function handleLogout(): void {
             @open-setting="settingModalRef?.open()" @logout="handleLogout" />
 
         <!-- Chat List remains visible on mobile; on mobile when a chat is selected, we slide the chat window over/across -->
-        <ChatList class="w-full xl:w-96 shrink-0 h-full" @toggle-menu="showSidebar = !showSidebar" />
+        <ChatList class="w-full lg:w-96 shrink-0 h-full" @toggle-menu="showSidebar = !showSidebar" />
 
         <div class="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-900  w-full h-full">
             <h2 class="text-lg italic font-light">
@@ -72,7 +74,7 @@ function handleLogout(): void {
 
         <Transition name="slide-chat">
             <div v-if="chat.currentChat != null"
-                class="absolute inset-0 xl:left-96 xl:w-[calc(100%-24rem)] w-full h-full bg-gray-100 dark:bg-gray-900 z-20">
+                class="absolute inset-0 lg:left-96 lg:w-[calc(100%-24rem)] w-full h-full bg-gray-100 dark:bg-gray-900 z-20">
                 <ChatWindow :chat="chat.currentChat" @open-chat-profile="(chatItem) => {
                     console.log(`openning chat profile for : ${chatItem.slug}`, chatItem);
                     profileModalRef?.open(chatItem.slug, chatItem);

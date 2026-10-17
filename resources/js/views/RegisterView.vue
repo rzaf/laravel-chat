@@ -5,6 +5,7 @@ import useAuthStore from '@/stores/auth';
 import { register as apiRegister } from '@/api';
 import { useFormErrors } from '@/composables/useFormErrors';
 import InputComponent from '@/components/common/Input.vue';
+import SpinnerIcon from '@/assets/svgs/Spinner.svg';
 
 const router = useRouter();
 const auth = useAuthStore();
@@ -85,7 +86,9 @@ async function register(): Promise<void> {
                     <div class="pt-2">
                         <button :disabled="isSending" type="submit"
                             :class="{ 'opacity-70 cursor-not-allowed': isSending }"
-                            class="w-full px-4 py-2.5 text-sm font-medium tracking-wide text-white bg-blue-600 rounded-lg transition-all duration-200 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 active:scale-[0.99]">
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium tracking-wide text-white bg-blue-600 rounded-lg transition-all duration-200 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 active:scale-[0.99]">
+
+                            <SpinnerIcon v-if="isSending"  />
                             <span v-if="isSending">Creating account...</span>
                             <span v-else>Sign up</span>
                         </button>

@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, useTemplateRef, onBeforeUnmount } from 'vue';
-import emojiData from '@emoji-mart/data';
-import { init, SearchIndex } from 'emoji-mart';
 
 const model = defineModel<string>({ default: '' });
 
@@ -20,8 +18,32 @@ const containerRef = useTemplateRef<HTMLDivElement>('containerRef');
 type EmojiMatch = { id: string; native: string };
 const matches = ref<EmojiMatch[]>([]);
 
+let searchIndex: typeof import('emoji-mart')['SearchIndex'] | null = null;
+let initPromise: Promise<void> | null = null;
+let searchRequestId = 0;
+
+async function loadEmojiMart(): Promise<void> {
+    if (searchIndex) return;
+
+    if (!initPromise) {
+        initPromise = (async () => {
+            const [{ init, SearchIndex }, { default: emojiData }] = await Promise.all([
+                import('emoji-mart'),
+                import('@emoji-mart/data'),
+            ]);
+
+            init({ data: emojiData });
+            searchIndex = SearchIndex;
+        })().catch((error) => {
+            initPromise = null;
+            throw error;
+        });
+    }
+
+    await initPromise;
+}
+
 onMounted(() => {
-    init({ data: emojiData });
     console.log('Emoji Auto picker : onMounted');
     document.addEventListener('mousedown', handleOutsideClick);
 });
@@ -42,22 +64,38 @@ function handleOutsideClick(e: MouseEvent) {
 watch(model, async (text) => {
     const match = text.match(/:([a-zA-Z0-9_+-]{1,20})$/);
     if (match) {
-        query.value = match[1];
+        const requestId = ++searchRequestId;
+        const searchQuery = match[1];
+        query.value = searchQuery;
         matchStart.value = text.length - match[0].length;
 
-        const results = await SearchIndex.search(query.value);
-        if (results && results.length > 0) {
-            matches.value = results.slice(0, 6).map((item: any) => ({
-                id: item.id,    
-                native: item.skins[0].native,
-            }));
-            showAutocomplete.value = true;
-            selectedIndex.value = 0;
-        } else {
-            matches.value = [];
-            showAutocomplete.value = false;
+        try {
+            await loadEmojiMart();
+            if (requestId !== searchRequestId) return;
+
+            const results = await searchIndex!.search(searchQuery);
+            if (requestId !== searchRequestId) return;
+
+            if (results && results.length > 0) {
+                matches.value = results.slice(0, 6).map((item: any) => ({
+                    id: item.id,
+                    native: item.skins[0].native,
+                }));
+                showAutocomplete.value = true;
+                selectedIndex.value = 0;
+            } else {
+                matches.value = [];
+                showAutocomplete.value = false;
+            }
+        } catch (error) {
+            if (requestId === searchRequestId) {
+                matches.value = [];
+                showAutocomplete.value = false;
+            }
+            console.error('Emoji Auto picker : failed to load or search emoji-mart', error);
         }
     } else {
+        searchRequestId++;
         showAutocomplete.value = false;
     }
 });
@@ -75,10 +113,10 @@ function confirmSelection(emojiNative: string) {
 function handleKeyDown(e: KeyboardEvent): boolean {
     if (e.ctrlKey && e.code === 'Space') { // toggling popup
         e.preventDefault();
-        showAutocomplete.value = !showAutocomplete.value ;
+        showAutocomplete.value = !showAutocomplete.value;
         return true;
     }
-    
+
     if (!showAutocomplete.value || matches.value.length === 0) return false;
 
     if (e.key === 'ArrowDown') {
@@ -98,6 +136,9 @@ function handleKeyDown(e: KeyboardEvent): boolean {
     }
     if (e.key === 'Escape') {
         showAutocomplete.value = false;
+        e.preventDefault();
+        e.stopPropagation();
+    
         return true;
     }
     return false;
