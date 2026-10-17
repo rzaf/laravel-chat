@@ -1,6 +1,6 @@
 
 <script setup lang="ts">
-import { onUnmounted } from 'vue';
+import { onUnmounted, ref } from 'vue';
 import type { Attachment } from '@/types';
 import { getProfilePhotos } from '@/api/index.ts';
 
@@ -13,6 +13,8 @@ type Slide = {
     width: number;
     height: number;
 };
+
+const isGalleryOpen = ref(false);
 
 let photos: Attachment[] = [];
 let photosSlug: string | null = null;
@@ -287,7 +289,12 @@ function openGallery(avatar: string) {
         });
     });
 
+    lightbox.on('init', () => {
+        isGalleryOpen.value = true;
+    });
+
     lightbox.on('destroy', () => {
+        isGalleryOpen.value = false;
         syncThumbs = null;
     });
 
@@ -297,7 +304,7 @@ function openGallery(avatar: string) {
 
 function destroyPhotoSwipe() {
     syncThumbs = null;
-
+    isGalleryOpen.value = false;
     if (lightbox) {
         lightbox.destroy();
         lightbox = null;
@@ -313,6 +320,7 @@ defineExpose({
     startFirstPage,
     openForProfile,
     destroyPhotoSwipe,
+    isGalleryOpen,
 });
 </script>
 
