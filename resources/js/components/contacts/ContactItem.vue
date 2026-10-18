@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router';
-import { onKeyStroke } from '@vueuse/core';
 import { useConfirm } from '@/composables/useConfirm';
 import ThreeDotsIcon from '@/assets/svgs/ThreeDots.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
@@ -10,6 +9,7 @@ import type { Contact } from '@/types';
 import Avatar from '../chat/Avatar.vue';
 import ContextMenu from '../common/ContextMenu.vue';
 import { useContextMenu } from '@/composables/useContextMenu.ts';
+import { nextTick, ref } from 'vue';
 
 const props = defineProps<{ contact: Contact }>();
 const { isOpen: isMenuOpen, x, y, open, close } = useContextMenu();
@@ -22,12 +22,8 @@ const emit = defineEmits<{
 
 const { confirm } = useConfirm();
 
-onKeyStroke('Escape', () => {
-    if (isMenuOpen.value) close();
-});
-
 function handleEdit(): void {
-    close();
+    // close();
     emit('openEditContactModal', props.contact.user.username, props.contact.name);
 }
 
@@ -37,11 +33,33 @@ function handleOpenChat(): void {
 }
 
 function handleDelete(): void {
-    close();
+    // close();
     confirm(`Are you sure you want to delete ${props.contact.user.username}?`).then((isConfirmed) => {
         if (isConfirmed) {
             emit('deleteContact', props.contact.user.username);
         }
+    });
+}
+
+function handleMenuOpen(event: MouseEvent): void {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+
+    open(
+        new MouseEvent('click', {
+            clientX: rect.left,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+            cancelable: true,
+        }),
+    );
+}
+const menuTrigger = ref<HTMLButtonElement | null>(null);
+
+function handleMenuClose(): void {
+    close();
+
+    nextTick(() => {
+        menuTrigger.value?.focus({ preventScroll: true });
     });
 }
 </script>
@@ -62,14 +80,15 @@ function handleDelete(): void {
         </RouterLink>
 
         <div class="relative">
-            <button type="button" aria-label="Contact options" aria-haspopup="menu" :aria-expanded="isMenuOpen"
+            <button ref="menuTrigger" type="button" aria-label="Contact options" aria-haspopup="menu"
+                :aria-expanded="isMenuOpen"
                 class="grid transition-colors rounded-full size-9 place-items-center hover:bg-gray-200 dark:hover:bg-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-                @click.stop.prevent="open">
+                @click.stop.prevent="handleMenuOpen">
                 <ThreeDotsIcon class="size-5 fill-gray-500 dark:fill-gray-300" />
             </button>
 
             <!-- Context Menu Component -->
-            <ContextMenu :is-open="isMenuOpen" :x="x" :y="y" @close="close" :align="'right'">
+            <ContextMenu :is-open="isMenuOpen" :x="x" :y="y" @close="handleMenuClose" :align="'right'">
                 <div class="py-1 min-w-[140px]">
                     <button type="button"
                         class="flex items-center w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"

@@ -1,8 +1,28 @@
 <script setup lang="ts">
+import { watch, onBeforeUnmount, computed } from 'vue';
 import { useConfirm, type ConfirmVariant } from '@/composables/useConfirm';
-import { onKeyStroke } from '@vueuse/core';
+import { getOverlayZIndex, createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 
 const { state, accept, close } = useConfirm();
+
+const overlayId = createOverlayId('confirm');
+const currentZIndex = computed(() => getOverlayZIndex(overlayId));
+
+watch(
+    () => state.value.isOpen,
+    (isOpen) => {
+        if (isOpen) {
+            registerOverlay(overlayId, 'overlay', close);
+        } else {
+            unregisterOverlay(overlayId);
+        }
+    },
+    { immediate: true, flush: 'sync' },
+);
+
+onBeforeUnmount(() => {
+    unregisterOverlay(overlayId);
+});
 
 // Dynamic styles based on variant
 const variantStyles: Record<ConfirmVariant, { button: string; ring: string }> = {
@@ -19,21 +39,14 @@ const variantStyles: Record<ConfirmVariant, { button: string; ring: string }> = 
         ring: 'focus:ring-blue-300 dark:focus:ring-blue-800',
     },
 };
-
-onKeyStroke('Escape', (e) => {
-    if (state.value.isOpen) {
-        e.stopImmediatePropagation(); // Stops other handlers from catching it
-        close();
-    }
-});
-
 </script>
 
 <template>
     <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0"
         enter-to-class="opacity-100" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100"
         leave-to-class="opacity-0">
-        <div v-if="state.isOpen" class="fixed inset-0 z-[1000] flex items-center justify-center p-4">
+        <div v-if="state.isOpen" class="fixed inset-0 flex items-center justify-center p-4"
+            :style="{ zIndex: currentZIndex }">
             <!-- Backdrop -->
             <div class="fixed inset-0 w-full h-full backdrop-blur-sm bg-black/50 transition-opacity" @click="close">
             </div>
@@ -42,8 +55,8 @@ onKeyStroke('Escape', (e) => {
             <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="scale-95 opacity-0"
                 enter-to-class="scale-100 opacity-100" leave-active-class="transition duration-150 ease-in"
                 leave-from-class="scale-100 opacity-100" leave-to-class="scale-95 opacity-0">
-                <div
-                    class="relative z-[1001] w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
+                <div :style="{ zIndex: currentZIndex + 1 }"
+                    class="relative w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden border border-gray-100 dark:border-gray-700">
                     <div class="flex flex-col p-6 text-center sm:text-left">
 
                         <!-- Header / Title -->

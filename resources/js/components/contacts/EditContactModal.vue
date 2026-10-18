@@ -6,7 +6,6 @@ import { useFormErrors } from '@/composables/useFormErrors';
 import Modal from '@/components/common/Modal.vue';
 import InputComponent from '@/components/common/Input.vue';
 import type { Contact } from '@/types';
-import { onKeyStroke } from '@vueuse/core';
 
 const emit = defineEmits<{
     (e: 'openContacts', contact: Contact): void;
@@ -48,16 +47,10 @@ async function updateContact(): Promise<void> {
 defineExpose({ open, close, toggle, isOpen });
 
 
-onKeyStroke('Escape', (e) => {
-    if (isOpen()) {
-        e.stopImmediatePropagation(); // Stops other handlers from catching it
-        close();
-    }
-});
 </script>
 
 <template>
-    <Modal ref="modal" width-class="lg:w-80 w-[90%]" :z-index="105">
+    <Modal ref="modal" width-class="lg:w-80 w-[90%]">
         <div class="flex flex-col h-full">
             <h2 class="h-12 px-6 pt-3 text-lg">Update Contact</h2>
             <div class="flex flex-col h-[calc(100%-3rem)] p-5 gap-2">

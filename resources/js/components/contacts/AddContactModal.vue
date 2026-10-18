@@ -21,12 +21,15 @@ const { modal, open, close, toggle, isOpen } = useModalControl();
 const { errors, setFromError, clear } = useFormErrors(['username', 'name']);
 
 
-onKeyStroke('Escape', () => {
-    if (selectedUser.value != null){
+function handleEscape(): void {
+    if (!isOpen()) return;
+
+    if (selectedUser.value != null) {
         clearSelection();
         return;
     }
-    if (userName.value != ''){
+
+    if (userName.value !== '') {
         isSearching.value = false;
         gotAllPages.value = true;
         selectedUserName.value = '';
@@ -34,9 +37,9 @@ onKeyStroke('Escape', () => {
         userName.value = '';
         return;
     }
-    if (isOpen()) close();
-});
 
+    close();
+}
 
 const searchedUsers = ref<User[]>([]);
 const gotAllPages = ref(true);
@@ -161,7 +164,7 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
 </script>
 
 <template>
-    <Modal ref="modal">
+    <Modal ref="modal" :on-escape="handleEscape">
         <div class="flex flex-col h-full">
             <!-- Header -->
             <div class="flex items-center justify-between px-5 pt-4 pb-2">

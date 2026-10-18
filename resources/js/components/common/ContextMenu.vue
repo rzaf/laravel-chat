@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue';
+import { getOverlayZIndex, createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
+import { computed } from 'vue';
 
 const props = withDefaults(
     defineProps<{
@@ -54,6 +56,8 @@ const adjustPosition = async () => {
     // 3. Ensure it doesn't fall off the left or top edges
     if (posX.value < margin) posX.value = margin;
     if (posY.value < margin) posY.value = margin;
+
+    menuRef.value?.focus();
 };
 
 // Re-calculate when the menu opens or coordinates change
@@ -64,18 +68,42 @@ watch(
     },
     { immediate: true }
 );
+
+const overlayId = createOverlayId('context-menu');
+const currentZIndex = computed(() => getOverlayZIndex(overlayId));
+
+function closeMenu(): void {
+    emit('close');
+}
+
+watch(
+    () => props.isOpen,
+    (isOpen) => {
+        if (isOpen) {
+            registerOverlay(overlayId, 'context-menu', closeMenu);
+        } else {
+            unregisterOverlay(overlayId);
+        }
+    },
+    { immediate: true, flush: 'sync' },
+);
+
+onBeforeUnmount(() => {
+    unregisterOverlay(overlayId);
+});
 </script>
 
 <template>
     <Teleport to="body">
         <template v-if="isOpen">
             <!-- Full-screen backdrop catcher: closes menu on outside click -->
-            <div class="fixed inset-0 z-5000 w-full h-full" @click="emit('close')"></div>
+            <div class="fixed inset-0 w-full h-full" @click="emit('close')" :style="{zIndex: currentZIndex}"></div>
 
             <div
                 ref="menuRef"
-                :style="{ top: posY + 'px', left: posX + 'px' }"
-                class="fixed z-5001 flex flex-col bg-white rounded-lg shadow-lg dark:bg-gray-700 min-w-40"
+                tabindex="-1"
+                :style="{ top: posY + 'px', left: posX + 'px',  zIndex: currentZIndex+1 }"
+                class="fixed flex flex-col bg-gray-50 rounded-lg shadow-lg dark:bg-gray-700 min-w-40"
             >
                 <slot />
             </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue';
+import { computed, onBeforeUnmount, watch, type Component } from 'vue';
 import { onKeyStroke, useDark } from '@vueuse/core';
 import useAuthStore from '@/stores/auth';
 import ContactsIcon from '@/assets/svgs/Contacts.svg';
@@ -9,6 +9,7 @@ import MoonIcon from '@/assets/svgs/Moon.svg';
 import SettingsIcon from '@/assets/svgs/Settings.svg';
 import LogoutIcon from '@/assets/svgs/Logout.svg';
 import Avatar from '../chat/Avatar.vue';
+import { createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 
 const open = defineModel<boolean>('open', { default: false });
 
@@ -22,10 +23,6 @@ const emit = defineEmits<{
 
 const auth = useAuthStore();
 const isDark = useDark();
-
-onKeyStroke('Escape', () => {
-    if (open.value) open.value = false;
-});
 
 type Item = {
     id: 'contacts' | 'addContact' | 'settings';
@@ -51,8 +48,29 @@ function signOut() {
     emit('logout');
 }
 
-const itemClass =
-    'flex items-center w-full gap-4 px-4 py-3 text-base text-left text-gray-700 transition-colors rounded-xl dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500';
+const itemClass = 'flex items-center w-full gap-4 px-4 py-3 text-base text-left text-gray-700 transition-colors rounded-xl dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500';
+
+const overlayId = createOverlayId('sidebar');
+
+function closeSidebar(): void {
+    open.value = false;
+}
+
+watch(
+    open,
+    (isOpen) => {
+        if (isOpen) {
+            registerOverlay(overlayId, 'overlay', closeSidebar);
+        } else {
+            unregisterOverlay(overlayId);
+        }
+    },
+    { flush: 'sync' },
+);
+
+onBeforeUnmount(() => {
+    unregisterOverlay(overlayId);
+});
 </script>
 
 <template>

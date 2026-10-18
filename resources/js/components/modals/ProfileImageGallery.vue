@@ -6,6 +6,7 @@ import { getProfilePhotos } from '@/api/index.ts';
 
 import PhotoSwipeLightbox from 'photoswipe/lightbox';
 import 'photoswipe/style.css';
+import { createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 
 type Slide = {
     src: string;
@@ -289,12 +290,14 @@ function openGallery(avatar: string) {
         });
     });
 
-    lightbox.on('init', () => {
+    lightbox.on('afterInit', () => {
         isGalleryOpen.value = true;
+        registerPhotoSwipeOverlay();
     });
 
     lightbox.on('destroy', () => {
         isGalleryOpen.value = false;
+        unregisterPhotoSwipeOverlay();
         syncThumbs = null;
     });
 
@@ -305,6 +308,7 @@ function openGallery(avatar: string) {
 function destroyPhotoSwipe() {
     syncThumbs = null;
     isGalleryOpen.value = false;
+    unregisterPhotoSwipeOverlay();
     if (lightbox) {
         lightbox.destroy();
         lightbox = null;
@@ -314,6 +318,18 @@ function destroyPhotoSwipe() {
 onUnmounted(() => {
     destroyPhotoSwipe();
 });
+
+const galleryOverlayId = createOverlayId('photoswipe');
+
+function registerPhotoSwipeOverlay(): void {
+    registerOverlay(galleryOverlayId, 'overlay', () => {
+        lightbox?.pswp?.close();
+    });
+}
+
+function unregisterPhotoSwipeOverlay(): void {
+    unregisterOverlay(galleryOverlayId);
+}
 
 defineExpose({
     resetPhotos,

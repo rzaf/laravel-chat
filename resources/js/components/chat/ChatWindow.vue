@@ -14,6 +14,7 @@ import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
 import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
 import Avatar from './Avatar.vue';
 import { onKeyStroke } from '@vueuse/core';
+import { hasOpenOverlay } from '@/composables/useOverlayManager';
 
 const props = defineProps<{ chat: Chat }>();
 const router = useRouter();
@@ -167,6 +168,7 @@ const groups = computed(() => {
 });
 
 onKeyStroke('Escape', () => {
+    if (hasOpenOverlay.value) return;
     router.push('/');
 });
 

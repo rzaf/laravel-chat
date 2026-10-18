@@ -17,7 +17,6 @@ import Avatar from '../chat/Avatar.vue';
 import type { Chat, User } from '@/types';
 import { getChatBySlug } from '@/api/index.ts';
 import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
-import { onKeyStroke } from '@vueuse/core';
 
 
 const { modal, open: modalOpen, close, toggle, isOpen } = useModalControl();
@@ -133,16 +132,6 @@ defineExpose({
     isOpen,
 });
 
-onKeyStroke('Escape', (e) => {
-    console.log('profile modal Escape');
-    if (isOpen()) {
-        e.stopImmediatePropagation(); // Stops other handlers from catching it
-        if (profileImageGallery?.value?.isGalleryOpen) {
-            return;
-        } 
-        close();
-    }
-});
 </script>
 
 <template>
