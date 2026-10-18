@@ -119,7 +119,7 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-1 px-2 py-2 mt-auto border-t border-gray-100 dark:border-gray-700">
                     <button type="button" role="switch" :aria-checked="isDark" :class="itemClass"
                         @click="isDark = !isDark">
-                        <SunIcon v-if="isDark" class="size-6 shrink-0 stroke-gray-500 dark:stroke-gray-400" />
+                        <SunIcon v-if="isDark" class="size-6 shrink-0 stroke-gray-300" />
                         <MoonIcon v-else class="size-6 shrink-0 stroke-gray-500" />
                         <span class="flex-1">Dark mode</span>
                         <span class="relative inline-flex h-6 transition-colors rounded-full w-10 shrink-0"

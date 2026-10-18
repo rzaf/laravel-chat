@@ -11,6 +11,7 @@ export interface User {
     name?: string;
     username?: string;
     email?: string;
+    phone?: string;
     profile_photo?: string;
     // profiles?: Object[];
     created_at?: string;

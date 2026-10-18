@@ -71,6 +71,7 @@ class AuthController extends Controller
      * @bodyParam email string required Example: test@gmail.com
      * @bodyParam password string required Example: 1234
      * @bodyParam password_confirmation string required Example: 1234
+     * @bodyParam phone string optional Example: 989123456789
      * 
      * 
      * @response 201
@@ -83,6 +84,7 @@ class AuthController extends Controller
             'username' => $this->usernameRules(),
             'email' => ['required','string','email','max:255','unique:users,email'],
             'password' => ['required','string','min:8','confirmed'],
+            'phone' => ['nullable', 'string', 'regex:/^\+[1-9]\d{1,14}$/'], // Optional international phone
         ]);
         // $validated = $req->validate([
         //     'name' => 'required|string',
@@ -111,6 +113,11 @@ class AuthController extends Controller
     /**
      * Update profile
      * 
+     * @bodyParam name string optional Example: test
+     * @bodyParam username string optional Example: test
+     * @bodyParam email string optional Example: test@gmail.com
+     * @bodyParam phone string optional Example: 989123456789
+     * 
      * @response 200
      */
     public function update(Request $req)
@@ -120,6 +127,7 @@ class AuthController extends Controller
             'name' => ['sometimes','string','max:100'],
             'username' => ['sometimes','string','min:3','max:30','regex:/^[a-z][a-z0-9_-]*$/','not_regex:/@/','unique:users,username,' . $user->id],
             'email' => ['sometimes','email','unique:users,email,' . $user->id],
+            'phone' => ['sometimes', 'string', 'regex:/^\+[1-9]\d{1,14}$/'], // Optional international phone
         ]);
 
         if(isset($validated['username'])){
