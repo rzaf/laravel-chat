@@ -35,4 +35,9 @@ class Chat extends Model
     {
         return $this->hasMany(Message::class, 'chat_id');
     }
+
+    public function userSettings(): HasMany
+    {
+        return $this->hasMany(ChatUserSetting::class);
+    }
 }

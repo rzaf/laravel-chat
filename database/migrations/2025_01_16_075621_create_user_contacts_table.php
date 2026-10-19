@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('user_contacts', function (Blueprint $table) {
             $table->id();
             
-            $table->string('name');
+            $table->string('name')->nullable();
 
             $table->foreignId('owner')->constrained('users');
             $table->foreignId('user_id')->constrained('users');

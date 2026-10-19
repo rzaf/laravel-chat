@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('chat_user_settings', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('chat_id')->constrained('chats')->cascadeOnDelete();
+
+            // Personal User Preferences/Actions
+            $table->boolean('is_pinned')->default(false);
+            $table->boolean('is_muted')->default(false);
+            $table->boolean('is_archived')->default(false);
+            $table->text('draft')->nullable(); // Saved unsent message draft
+
+            // Helpful extras
+            $table->timestamp('last_read_at')->nullable(); // For unread message badges counter
+            $table->timestamp('muted_until')->nullable();  // Optional: mute for 1 hour, 8 hours, forever
+
+            $table->unique(['user_id', 'chat_id']);
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('chat_user_settings');
+    }
+};

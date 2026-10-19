@@ -76,4 +76,9 @@ class User extends Authenticatable
             ->where('collection', 'profiles')
             ->latestOfMany();
     }
+
+    public function chatSettings(): HasMany
+    {
+        return $this->hasMany(ChatUserSetting::class);
+    }
 }
