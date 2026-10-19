@@ -24,6 +24,32 @@ export async function getChatBySlug(slug :string): Promise<{ chat: Chat; user: U
     return data ?? [];
 }
 
+export async function toggleChatPin(chatId: number, isPinned: boolean): Promise<{ pinned: boolean }> {
+    const { data } = await apiClient.patch<{ pinned: boolean }>(`/api/chats/${chatId}/pin`, {
+        'is_pinned': isPinned,
+    });
+    return data;
+}
+
+export async function toggleChatMute(chatId: number, isMuted: boolean): Promise<{ muted: boolean }> {
+    const { data } = await apiClient.patch<{ muted: boolean }>(`/api/chats/${chatId}/mute`, {
+        'is_muted': isMuted,
+    });
+    return data;
+}
+
+export async function toggleChatArchive(chatId: number, isArchived: boolean): Promise<{ archived: boolean }> {
+    const { data } = await apiClient.patch<{ archived: boolean }>(`/api/chats/${chatId}/archive`, {
+        'is_archived': isArchived,
+    });
+    return data;
+}
+
+export async function updateChatDraft(chatId: number, draft: string | null): Promise<{ draft: string | null }> {
+    const { data } = await apiClient.put<{ draft: string | null }>(`/api/chats/${chatId}/draft`, { draft });
+    return data;
+}
+
 /* ----------------------------------------------------------- broadcasting */
 
 export async function broadcastAuthorize(

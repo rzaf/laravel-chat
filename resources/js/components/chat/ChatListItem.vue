@@ -15,15 +15,6 @@ const props = defineProps<{
     currentChat: Chat | null;
 }>();
 
-// props.chat.is_online = true;
-// if ((props?.chat?.latest_message_attachments_count || 0) > 2) {
-//     props.chat.pinned = true;
-// }
-// props.chat.last_message_is_mine = true;
-// props.chat.muted = true;
-// props.chat.last_message_status = 'seen';
-// props.chat.unseen_messages_count = 2;
-
 const emit = defineEmits<{
     (e: 'mute', chat: Chat): void;
     (e: 'pin', chat: Chat): void;
@@ -54,7 +45,6 @@ const previewPrefix = computed(() => {
 });
 
 function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
-    // vue's emit is strongly typed, so dispatch explicitly
     if (action === 'mute') emit('mute', props.chat);
     else if (action === 'pin') emit('pin', props.chat);
     else if (action === 'archive') emit('archive', props.chat);
@@ -77,7 +67,8 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                 <Avatar class="w-13 h-13" :src="chat.profile_photo || '/storage/default-profile.png'" />
                 <span v-if="chat.is_online"
                     class="absolute bottom-0 right-1.5 bg-green-500 border-4 rounded-full size-4.5"
-                    :class="isActive ? 'lg:border-blue-600' : 'border-white dark:border-gray-800'" title="Online"></span>
+                    :class="isActive ? 'lg:border-blue-600' : 'border-white dark:border-gray-800'"
+                    title="Online"></span>
             </div>
             <!-- <PinIcon v-if="chat.pinned" class="size-3 absolute top-1 right-1 rotate-45 opacity-60" /> -->
 
@@ -98,19 +89,6 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                         {{ chat.last_message_created_at ? formattedTimestamp(chat.last_message_created_at) : '' }}
                     </time>
                 </div>
-                <!-- Row 1: name + time -->
-                <!-- <div class="flex items-center gap-2">
-                    <h3 class="text-base font-medium truncate" :class="{ 'font-semibold': unseen > 0 && !chat.muted }">
-                        {{ chat.name }}
-                    </h3>
-                    <MuteXIcon v-if="chat.muted" class="size-4 shrink-0 opacity-40" stroke-width="2" />
-                    <time class="ml-auto text-xs whitespace-nowrap" :class="isActive
-                            ? 'text-blue-100'
-                            : 'text-gray-500 dark:text-gray-400'
-                        ">
-                        {{ chat.last_message_created_at ? formattedTimestamp(chat.last_message_created_at) : '' }}
-                    </time>
-                </div> -->
 
                 <!-- Row 2: preview + badges -->
                 <div class="flex items-center gap-2">
@@ -162,7 +140,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                 <li>
                     <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('archive')">
-                        Archive
+                        {{ chat.archived ? 'Unarchive' : 'Archive' }}
                     </button>
                 </li>
                 <li>
