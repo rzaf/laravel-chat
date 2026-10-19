@@ -112,6 +112,11 @@ export default defineStore('chat', () => {
         lastIncoming.value = message;
     }
 
+    function clear(): void {
+        chatList.value = null;
+        currentChat.value = null;
+    }
+
     return {
         chatList,
         currentChat,
@@ -124,5 +129,6 @@ export default defineStore('chat', () => {
         addChat,
         decrementUnseen,
         receiveMessage,
+        clear,
     };
 });

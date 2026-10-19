@@ -51,11 +51,14 @@ watch(
     { immediate: true },
 );
 
-function handleLogout(): void {
+async function handleLogout() {
     disconnectEcho();
     auth.logout();
-    window.location.href = '/sign-in';
+    // router.push('/sign-in');
+    const failure = await router.replace({ name: 'login' });
+    console.log('logout nav result:', failure, router.currentRoute.value.fullPath);
 }
+router.onError((e) => console.error('router error', e));
 </script>
 
 <template>

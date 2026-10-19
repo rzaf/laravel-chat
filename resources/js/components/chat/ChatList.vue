@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, onUnmounted } from 'vue';
 import useChatStore from '@/stores/chat';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
 import MenuIcon from '@/assets/svgs/Menu.svg';
@@ -66,6 +66,11 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => window.addEventListener('keydown', onKey));
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
+
+onUnmounted(() => {
+    clearSearch();
+    chatStore.clear();
+})
 </script>
 
 <template>

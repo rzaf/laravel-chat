@@ -1,6 +1,7 @@
-import { createRouter, createWebHistory } from 'vue-router';
+import { createRouter, createWebHistory, START_LOCATION } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 import useAuthStore from '@/stores/auth';
+import { useLoading } from '@/composables/useLoading';
 
 declare module 'vue-router' {
     interface RouteMeta {
@@ -52,7 +53,10 @@ const router = createRouter({
     routes,
 });
 
-router.beforeEach((to) => {
+const { start, stop } = useLoading();
+
+
+router.beforeEach((to, from) => {
     const auth = useAuthStore();
     if (to.meta.requiresAuth && !auth.isAuthenticated) {
         return { name: 'login' };
@@ -60,7 +64,15 @@ router.beforeEach((to) => {
     if (to.meta.guestOnly && auth.isAuthenticated) {
         return { name: 'home' };
     }
+    if (from !== START_LOCATION) start();
     return true;
 });
+
+// Runs on success, cancellation, duplicate and failed navigations.
+router.afterEach(() => stop());
+
+// Runs when a guard throws or a lazy chunk fails to load.
+router.onError(() => stop());
+
 
 export default router;
