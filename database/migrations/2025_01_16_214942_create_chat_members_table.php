@@ -19,6 +19,7 @@ return new class extends Migration
             $table->foreignId('chat_id')->constrained('chats');
 
             $table->unique(['user_id', 'chat_id']);
+            $table->softDeletes();
             $table->timestamps();
         });
     }

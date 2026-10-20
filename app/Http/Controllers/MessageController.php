@@ -6,6 +6,7 @@ use App\Events\NewPrivateMessage;
 use App\Http\Resources\MessageResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
+use App\Models\ChatUserSetting;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\MediaService;
@@ -37,7 +38,7 @@ class MessageController extends Controller
 
     protected function directChatForUsers(User $userA, User $userB): Chat
     {
-        $chatIds = ChatMembers::query()
+        $chatIds = ChatMembers::withTrashed()
             ->select('chat_id')
             ->whereIn('user_id', [$userA->id, $userB->id])
             ->groupBy('chat_id')
@@ -50,6 +51,10 @@ class MessageController extends Controller
             ->first();
 
         if ($chat) {
+            ChatMembers::withTrashed()
+                ->where('chat_id', $chat->id)
+                ->whereIn('user_id', [$userA->id, $userB->id])
+                ->restore();
             return $chat;
         }
 
@@ -73,14 +78,9 @@ class MessageController extends Controller
     public function getDirectMessages(Request $request, string $username)
     {
         $currentUser = $request->user();
-
         $otherUser = User::where('username', $username)->firstOrFail();
 
-        abort_if(
-            $currentUser->id === $otherUser->id,
-            400,
-            'You cannot message yourself'
-        );
+        abort_if($currentUser->id === $otherUser->id, 400, 'You cannot message yourself');
 
         $chat = Chat::query()
             ->where('type', 'direct')
@@ -91,19 +91,29 @@ class MessageController extends Controller
                 $query->where('users.id', $otherUser->id);
             })
             ->first();
-
-        // abort_if(!$chat, 400, 'Direct chat not found');
-        // use Illuminate\Pagination\Paginator;
-
         if ($chat === null) {
             return new \Illuminate\Pagination\Paginator([], 20, 1);
         }
-
+        // Fetch user settings to check if history was cleared
+        $settings = ChatUserSetting::where('user_id', $currentUser->id)
+            ->where('chat_id', $chat->id)
+            ->first();
+        $query = Message::query()
+            ->with('media')
+            ->where('chat_id', $chat->id)
+            // Exclude messages deleted individually by this user ("Delete for Me")
+            ->whereNotExists(function ($subQuery) use ($currentUser) {
+                $subQuery->select(DB::raw(1))
+                    ->from('message_user_deletions')
+                    ->whereColumn('message_user_deletions.message_id', 'messages.id')
+                    ->where('message_user_deletions.user_id', $currentUser->id);
+            });
+        // If user cleared the chat history, ignore messages up to that timestamp
+        if ($settings && $settings->cleared_at) {
+            $query->where('created_at', '>', $settings->cleared_at);
+        }
         return MessageResource::collection(
-            Message::query()
-                ->with('media')
-                ->where('chat_id', $chat->id)
-                ->orderByDesc('created_at')
+            $query->orderByDesc('created_at')
                 ->orderByDesc('id')
                 ->simplePaginate(20)
         );
@@ -141,9 +151,10 @@ class MessageController extends Controller
      */
     public function storeDirectMessage(Request $req, string $username, MediaService $mediaService)
     {
+        $currentUser = $req->user();
         $user = User::firstWhere(['username' => $username]);
         abort_if($user == null, 404, 'user not found');
-        abort_if($req->user()->username == $username, 400, 'cant message yourself');
+        abort_if($currentUser->username == $username, 400, 'cant message yourself');
 
         $validated = $req->validate([
             'content' => 'required_without:attachments|string|max:1024',
@@ -153,10 +164,10 @@ class MessageController extends Controller
 
         try {
             DB::beginTransaction();
-            $chat = $this->directChatForUsers($req->user(), $user);
+            $chat = $this->directChatForUsers($currentUser, $user);
             $message = Message::create([
                 'chat_id' => $chat->id,
-                'sender_id' => $req->user()->id,
+                'sender_id' => $currentUser->id,
                 'content' => $validated['content'] ?? '',
             ]);
             if ($req->hasFile('attachments')) {
@@ -245,15 +256,63 @@ class MessageController extends Controller
         ], 200);
     }
 
-    public function destroy(Request $req, string $id)
-    {
-        $message = Message::findOrFail($id);
-        abort_unless($message->sender_id === $req->user()->id, 403, 'Unauthorized');
-        $message->delete();
+    // public function destroy(Request $req, string $id)
+    // {
+    //     $message = Message::findOrFail($id);
+    //     abort_unless($message->sender_id === $req->user()->id, 403, 'Unauthorized');
+    //     $message->delete();
 
+    //     return response()->json([
+    //         'message' => 'message deleted',
+    //     ], 200);
+    // }
+
+    public function destroy(Request $req, string $messageId)
+    {
+        $req->validate([
+            'delete_for_everyone' => 'optional|boolean',
+        ]);
+        $currentUser = $req->user();
+        $message = Message::with('chat')->where('id', $messageId)->first();
+        if (!$message) {
+            return response()->json(['message' => 'Message not found'], 404);
+        }
+        $currentUserMemberRow = $message->chat->members()->where('user_id', $currentUser->id)->first();
+        if (!$currentUserMemberRow) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        $deleteForEveryone = $req->boolean('delete_for_everyone', false);
+
+        // ==========================================
+        // SCENARIO A: DELETE FOR EVERYONE
+        // ==========================================
+        if ($deleteForEveryone) {
+            if ($message->chat->type == 'chat') {
+                // if chat be a group or channel only admins can delete message
+                if ($message->sender_id !== $currentUser->id && $currentUserMemberRow->role == 'normal') {
+                    return response()->json(['message' => 'You can only delete your own messages for everyone.'], 403);
+                }
+            }
+            // in direct chat anybody can delete a message !            
+            // Global soft delete
+            $message->delete();
+            return response()->json([
+                'message' => 'Message deleted for everyone.',
+            ], 200);
+        }
+
+        // ==========================================
+        // SCENARIO B: DELETE JUST FOR ME
+        // ==========================================
+        DB::table('message_user_deletions')->updateOrInsert([
+            'message_id' => $message->id,
+            'user_id' => $currentUser->id,
+        ], [
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         return response()->json([
-            'message' => 'message deleted',
+            'message' => 'Message deleted for you.',
         ], 200);
     }
 }
-

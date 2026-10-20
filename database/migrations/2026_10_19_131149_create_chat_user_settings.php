@@ -24,6 +24,8 @@ return new class extends Migration
             $table->timestamp('last_read_at')->nullable(); // For unread message badges counter
             $table->timestamp('muted_until')->nullable();  // Optional: mute for 1 hour, 8 hours, forever
 
+            $table->timestamp('cleared_at')->nullable(); // Hides messages older than this timestamp
+
             $table->unique(['user_id', 'chat_id']);
             $table->timestamps();
         });

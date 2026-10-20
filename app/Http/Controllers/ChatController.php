@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Resources\UserResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
+use App\Models\ChatUserSetting;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -22,12 +23,15 @@ class ChatController extends Controller
      */
     protected function baseChatQuery(int $userId)
     {
+        // Latest active message subquery (excluding deleted messages)
         $latestMessageIds = DB::table('messages')
-            ->select(DB::raw('MAX(id) as id'))
+            ->select('chat_id', DB::raw('MAX(id) as id'))
+            ->whereNull('deleted_at')
             ->groupBy('chat_id');
 
         return ChatMembers::query()
             ->where('chat_members.user_id', $userId)
+            ->whereNull('chat_members.deleted_at')
             ->join('chats', 'chats.id', '=', 'chat_members.chat_id')
             // Join peer (other member) for direct chats
             ->leftJoin('chat_members as peer_members', function ($join) use ($userId) {
@@ -40,7 +44,7 @@ class ChatController extends Controller
                 $join->on('user_contacts.user_id', '=', 'peer.id')
                     ->where('user_contacts.owner', '=', $userId);
             })
-            // Join chat user settings (pinned, muted, archived, draft)
+            // Join chat user settings (pinned, muted, archived, draft, cleared_at)
             ->leftJoin('chat_user_settings', function ($join) use ($userId) {
                 $join->on('chat_user_settings.chat_id', '=', 'chats.id')
                     ->where('chat_user_settings.user_id', '=', $userId);
@@ -63,9 +67,14 @@ class ChatController extends Controller
                     )', [Chat::class]);
             })
             ->leftJoinSub($latestMessageIds, 'latest_msg_ids', function ($join) {
-                $join->on('latest_msg_ids.id', '=', DB::raw('(SELECT MAX(id) FROM messages WHERE chat_id = chat_members.chat_id)'));
+                $join->on('latest_msg_ids.chat_id', '=', 'chats.id');
             })
             ->leftJoin('messages as latest_msg', 'latest_msg.id', '=', 'latest_msg_ids.id')
+            // Hide chat from list if it was cleared and no new messages arrived after cleared_at
+            ->where(function ($query) {
+                $query->whereNull('chat_user_settings.cleared_at')
+                    ->orWhereColumn('latest_msg.created_at', '>', 'chat_user_settings.cleared_at');
+            })
             ->select([
                 DB::raw('COALESCE(chats.slug, peer.username) as slug'),
                 // Priority: Custom Contact Name -> Peer Name -> Chat Name
@@ -74,8 +83,19 @@ class ChatController extends Controller
                 'chats.type',
                 'chats.id as id',
                 'chats.created_at',
-                'latest_msg.content as last_message',
-                'latest_msg.created_at as last_message_created_at',
+                // Respect cleared_at for message preview text as well
+                DB::raw('
+                    CASE 
+                        WHEN chat_user_settings.cleared_at IS NOT NULL AND latest_msg.created_at <= chat_user_settings.cleared_at 
+                        THEN NULL 
+                        ELSE latest_msg.content 
+                    END as last_message'),
+                DB::raw('
+                    CASE 
+                        WHEN chat_user_settings.cleared_at IS NOT NULL AND latest_msg.created_at <= chat_user_settings.cleared_at 
+                        THEN NULL 
+                        ELSE latest_msg.created_at 
+                    END as last_message_created_at'),
                 'latest_msg.sender_id as last_message_sender_id',
                 'latest_msg.read_at as last_message_read_at',
                 DB::raw('COALESCE(chat_media.id, profile_media.id) as profile_id'),
@@ -84,8 +104,6 @@ class ChatController extends Controller
                 DB::raw('COALESCE(chat_user_settings.is_muted, 0) as muted'),
                 DB::raw('COALESCE(chat_user_settings.is_archived, 0) as archived'),
                 'chat_user_settings.draft',
-                // Peer online status (active within last 5 minutes)
-                // DB::raw('CASE WHEN peer.last_seen_at >= NOW() - INTERVAL 5 MINUTE THEN 1 ELSE 0 END as is_online'),
             ])
             ->selectSub(function ($query) use ($userId) {
                 $query->from('messages')
@@ -170,20 +188,110 @@ class ChatController extends Controller
 
     public function destroy(Request $req, string $chatId)
     {
+        $req->validate([
+            'delete_for_everyone' => 'optional|boolean',
+        ]);
         $currentUser = $req->user();
+        // 1. Find the chat and verify membership
+        $chat = Chat::query()->where('id', $chatId)->first();
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+        $currentUserMemberRow = $chat->members()->where('user_id', $currentUser->id)->first();
+        if (!$currentUserMemberRow) {
+            return response()->json(['message' => 'You are not a member of this chat'], 403);
+        }
+        $deleteForEveryone = $req->boolean('delete_for_everyone', false);
 
-        $chatMember = ChatMembers::query()
-            ->where('chat_id', $chatId)
-            ->where('user_id', $currentUser->id)
-            ->first();
+        // ==========================================
+        // SCENARIO A: DELETE / DESTROY FOR EVERYONE
+        // ==========================================
+        if ($deleteForEveryone) {
+            // If it's a group chat, ensure user is owner
+            if ($chat->type === 'group') {
+                $role = $currentUserMemberRow->role;
+                if (!in_array($role, ['owner'])) {
+                    return response()->json(['message' => 'Only owner can delete group chats for everyone.'], 403);
+                }
+            }
+            // Soft delete all messages in the chat globally
+            $chat->messages()->delete();
+            // Soft delete the chat globally
+            $chat->delete();
+            return response()->json([
+                'message' => 'Chat and its messages deleted for everyone successfully.',
+            ], 200);
+        }
 
-        abort_if($chatMember == null, 404, 'chat not found or does not belong to you');
+        // ==========================================
+        // SCENARIO B: DELETE "JUST FOR ME"
+        // ==========================================
+        if ($chat->type === 'group') {
+            $role = $currentUserMemberRow->role;
+            if (in_array($role, ['owner'])) {
+                return response()->json(['message' => 'Owner cant leave the group!'], 403);
+            }
+            // For groups, "deleting for me" means leaving the group entirely
+            $chat->members()->detach($currentUser->id);
+            return response()->json([
+                'message' => 'You have left the group chat.',
+            ], 200);
+        }
 
-        $ok = $chatMember->delete();
-        abort_if(!$ok, 400, 'failed to leave chat');
+        // For direct chats, we don't want to destroy the record globally 
+        // because the other person still needs it. We hide it and clear the history for this user.
+        ChatUserSetting::updateOrCreate([
+            'user_id' => $currentUser->id,
+            'chat_id' => $chat->id
+        ], [
+            'cleared_at' => now(), // Marks the point from which past messages are hidden for this user
+        ]);
+        // delete chat member for current user so it doesn't appear in users chat list
+        ChatMembers::query()->where([
+            'user_id'=> $currentUser->id,
+            'chat_id'=> $chat->id,
+        ])->update(['deleted_at' => now()]);
 
         return response()->json([
-            'message' => 'chat removed successfully',
+            'message' => 'Chat removed from your list and history cleared.',
+        ], 200);
+    }
+
+
+    public function clearHistory(Request $req, string $chatId)
+    {
+        $req->validate([
+            'delete_for_everyone' => 'optional|boolean',
+        ]);
+        $currentUser = $req->user();
+        $chat = Chat::query()->where('id', $chatId)->first();
+        if (!$chat) {
+            return response()->json(['message' => 'Chat not found'], 404);
+        }
+        $currentUserMemberRow = $chat->members()->where('user_id', $currentUser->id)->first();
+        if (!$currentUserMemberRow) {
+            return response()->json(['message' => 'You are not a member of this chat'], 403);
+        }
+        if ($chat->type === 'group') {
+            return response()->json(['message' => 'Cant clear history of groups'], 403);
+        }
+        $deleteForEveryone = $req->boolean('delete_for_everyone', false);
+        if ($deleteForEveryone) {
+            // Soft delete all messages in the chat globally
+            $chat->messages()->delete();
+            return response()->json([
+                'message' => 'Chat messages deleted for everyone successfully.',
+            ], 200);
+        }
+        ChatUserSetting::updateOrCreate([
+            'user_id' => $currentUser->id,
+            'chat_id' => $chat->id
+        ], [
+            'cleared_at' => now(), // Marks the point from which past messages are hidden for this user
+        ]);
+
+        return response()->json([
+            'message' => 'Chat history cleared.',
         ], 200);
     }
 

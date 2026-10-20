@@ -54,6 +54,7 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
     Route::get('/', [ChatController::class, 'index']);
     Route::get('/{slug}', [ChatController::class, 'getChat']);
     Route::delete('/{id}', [ChatController::class, 'destroy']);
+    Route::delete('/{id}/clear', [ChatController::class, 'clearHistory']);
 
     Route::patch('/{chatId}/pin', [ChatController::class, 'togglePin']);
     Route::patch('/{chatId}/mute', [ChatController::class, 'toggleMute']);
