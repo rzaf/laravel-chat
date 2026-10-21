@@ -40,6 +40,29 @@ export function useMessageScroll(container: Ref<HTMLElement | null>) {
         }
     }
 
+    /** `data-message-id` of the last message whose bottom edge is inside the viewport. */
+    function lastVisibleMessageId(): string | null {
+        const el = container.value;
+        if (!el) return null;
+        const bottom = el.getBoundingClientRect().bottom + 2;
+        const nodes = el.querySelectorAll<HTMLElement>('[data-message-id]');
+        for (let i = nodes.length - 1; i >= 0; i--) {
+            if (nodes[i].getBoundingClientRect().bottom <= bottom) {
+                return nodes[i].dataset.messageId ?? null;
+            }
+        }
+        return null;
+    }
+
+    /** Scroll so the bottom edge of the given message aligns with the viewport bottom. */
+    function scrollToMessageBottom(id: string | number): boolean {
+        const el = container.value;
+        const target = el?.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+        if (!el || !target) return false;
+        el.scrollTop += target.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+        return true;
+    }
+    
     return {
         showGoToBottom,
         scrollToBottom,
@@ -47,5 +70,7 @@ export function useMessageScroll(container: Ref<HTMLElement | null>) {
         isNearBottom,
         updateGoToBottom,
         preserveOnPrepend,
+        lastVisibleMessageId,
+        scrollToMessageBottom,
     };
 }

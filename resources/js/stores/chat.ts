@@ -56,6 +56,13 @@ export default defineStore('chat', () => {
         currentChat.value = null;
     }
 
+    function removeChat(chatId: number): void {
+        if (chatList.value != null && chatList.value.length > 0) {
+            let id = chatList.value.findIndex((c) => c.id == chatId);
+            chatList.value.splice(id, 1);
+        }
+    }
+
     function setLastMessage(chatId: number, content: string, createdAt: string): void {
         const chat = findChat(chatId);
         if (chat) {
@@ -95,15 +102,36 @@ export default defineStore('chat', () => {
         }
     }
 
+    function seenAll(chatId: number): void {
+        const chat = findChat(chatId);
+        if (chat) {
+            chat.unseen_messages_count = 0;
+            chat.last_read_at = chat.last_message_created_at ?? new Date().toISOString();
+        }
+    }
+
+
+    /** Advance last_read_at (never backwards) and set the badge count. */
+    function setReadState(chatId: number, readAt: string, unseen: number): void {
+        const chat = findChat(chatId);
+        if (!chat) return;
+        if (timestamp(readAt) > timestamp(chat.last_read_at)) {
+            chat.last_read_at = readAt;
+        }
+        chat.unseen_messages_count = Math.max(0, unseen);
+    }
+
     /** Apply a realtime message to the list, then signal the open window. */
     function receiveMessage(message: IncomingMessage): void {
         const chat = findChat(message.chat_id);
+        if (message.attachments == null) {
+            message.attachments = [];
+        }
         if (chat) {
             chat.last_message = message.content;
             chat.last_message_created_at = message.created_at;
-            if (currentChat.value?.id !== message.chat_id) {
-                chat.unseen_messages_count = (chat.unseen_messages_count ?? 0) + 1;
-            }
+            // Always count it; the open window marks it read once it's actually visible.
+            chat.unseen_messages_count = (chat.unseen_messages_count ?? 0) + 1;
             reorder();
         } else {
             // A message for a chat we haven't loaded yet — refresh the list.
@@ -128,7 +156,10 @@ export default defineStore('chat', () => {
         setLastMessage,
         addChat,
         decrementUnseen,
+        seenAll,
+        setReadState,
         receiveMessage,
         clear,
+        removeChat,
     };
 });

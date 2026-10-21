@@ -1,41 +1,66 @@
-import { markPrivateMessageRead } from '@/api';
-import { messageSenderId } from '@/types';
+import { ref } from 'vue';
+import { markMessageAsRead } from '@/api';
 import type { Message } from '@/types';
 
 /**
- * Marks the other participant's unread messages as read. De-duplicates
- * in-flight requests and updates each message's `read_at` locally so a message
- * is never marked twice.
- *
- * @param onRead called with the chat id after a message is confirmed read,
- *               so the caller can decrement the unseen counter.
+ * Manages debounced and cancelable read receipts as the user scrolls or opens chats.
  */
-export function useReadReceipts(onRead: (chatId: number) => void) {
-    const inFlight = new Set<number>();
+export function useReadReceipts(onRead: (chatId: number, message: Message) => void) {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let abortController: AbortController | null = null;
+    let pendingId: Message['id'] | null = null;
 
-    function markRead(messages: Message[], selfId: number | undefined): void {
-        for (const message of messages) {
-            const id = message.id;
-            if (
-                id == null ||
-                message.read_at != null ||
-                messageSenderId(message) === selfId ||
-                inFlight.has(id)
-            ) {
-                continue;
-            }
-
-            inFlight.add(id);
-            markPrivateMessageRead(id)
-                .then(() => {
-                    message.read_at = new Date().toISOString();
-                    if (message.chat_id != null) {
-                        onRead(message.chat_id);
-                    }
-                })
-                .catch(() => inFlight.delete(id));
+    /**
+     * Debounced function to mark a message as read.
+     * Cancels any pending timer or in-flight request when a new message is passed.
+     */
+    function markRead(message: Message | null, chatIdOverride?: number): void {
+        const chatId = chatIdOverride ?? message?.chat_id;
+        if (!message || message.id == null || chatId == null) {
+            return;
         }
+        // Same message already scheduled/in flight — keep it, don't restart.
+        if (pendingId === message.id) {
+            return;
+        }
+        pendingId = message.id;
+
+        // Clear the previous pending debounce timer
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+
+        // Abort any active in-flight request for the previous message
+        if (abortController) {
+            abortController.abort();
+        }
+
+        abortController = new AbortController();
+        const signal = abortController.signal;
+        const messageId = message.id;
+        // const chatId = message.chat_id;
+
+        // 400ms debounce delay during scrolling
+        timeoutId = setTimeout(async () => {
+            try {
+                await markMessageAsRead(messageId, signal);
+                pendingId = null;
+                onRead(chatId, message);
+            } catch (err: any) {
+                if (err.name !== 'CanceledError' && err.code !== 'ERR_CANCELED') {
+                    pendingId = null; // allow retry
+                    console.error('Failed to mark message as read', err);
+                }
+            }
+        }, 400);
     }
 
-    return { markRead };
+    function cancel(): void {
+        if (timeoutId) clearTimeout(timeoutId);
+        if (abortController) abortController.abort();
+        timeoutId = null;
+        pendingId = null;
+    }
+
+    return { markRead, cancel };
 }
