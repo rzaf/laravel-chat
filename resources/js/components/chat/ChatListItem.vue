@@ -19,7 +19,8 @@ const emit = defineEmits<{
     (e: 'mute', chat: Chat): void;
     (e: 'pin', chat: Chat): void;
     (e: 'archive', chat: Chat): void;
-    (e: 'edit', chat: Chat): void;
+    (e: 'markAsRead', chat: Chat): void;
+    (e: 'clearHistory', chat: Chat): void;
     (e: 'delete', chat: Chat): void;
 }>();
 
@@ -44,11 +45,12 @@ const previewPrefix = computed(() => {
     return '';
 });
 
-function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
+function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' | 'delete') {
     if (action === 'mute') emit('mute', props.chat);
     else if (action === 'pin') emit('pin', props.chat);
     else if (action === 'archive') emit('archive', props.chat);
-    else if (action === 'edit') emit('edit', props.chat);
+    else if (action === 'markAsRead') emit('markAsRead', props.chat);
+    else if (action === 'clearHistory') emit('clearHistory', props.chat);
     else emit('delete', props.chat);
     close();
 }
@@ -145,8 +147,14 @@ function act(action: 'mute' | 'pin' | 'archive' | 'edit' | 'delete') {
                 </li>
                 <li>
                     <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
-                        @click="act('edit')">
-                        Edit
+                        @click="act('markAsRead')">
+                        Mark as read
+                    </button>
+                </li>
+                <li>
+                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('clearHistory')">
+                        Clear History
                     </button>
                 </li>
                 <li class="mt-1 border-t border-gray-100 dark:border-gray-600">

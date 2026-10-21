@@ -60,7 +60,7 @@ class ContactController extends Controller
             'owner' => $req->user()->id,
             'user_id' => $user->id,
         ], [
-            'name' => $validated['name'] ?? '',
+            'name' => $validated['name'] ?? null,
             'owner' => $req->user()->id,
             'user_id' => $user->id,
         ]);

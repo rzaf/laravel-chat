@@ -46,6 +46,7 @@ class MessageController extends Controller
             ->pluck('chat_id');
 
         $chat = Chat::query()
+            ->withTrashed()
             ->whereIn('id', $chatIds)
             ->where('type', 'direct')
             ->first();
@@ -55,6 +56,9 @@ class MessageController extends Controller
                 ->where('chat_id', $chat->id)
                 ->whereIn('user_id', [$userA->id, $userB->id])
                 ->restore();
+            if ($chat->deleted_at != null) {
+                $chat->restore();
+            }
             return $chat;
         }
 
@@ -222,39 +226,49 @@ class MessageController extends Controller
         ], 200);
     }
 
-    public function markAsRead(Request $req, string $id)
+    public function markAsReadMessage(Request $req, string $messageId)
     {
-        $message = Message::find($id);
+        $user = $req->user();
+        $message = Message::query()->with('chat')->find($messageId);
         abort_if(!$message, 404, 'message not found');
 
-        $recipientId = $message->chat->members()->whereKeyNot($message->sender_id)->first()?->id;
-        abort_if($recipientId != $req->user()->id, 403, 'you did not receive this message');
+        $isMember = ChatMembers::where('chat_id', $message->chat_id)
+            ->where('user_id', $user->id)
+            ->exists();
+        abort_if(!$isMember, 403, 'Not Allowed');
 
-        $ok = $message->update(['read_at' => now()]);
-        abort_if(!$ok, 400, 'failed to mark message as read');
+        abort_if($message->sender_id === $user->id, 400, 'cannot mark your own message as read');
 
-        return response()->json([
-            'message' => 'message marked as read',
-        ], 200);
-    }
-
-    public function markAsReadAll(Request $req)
-    {
-        $user = User::firstWhere('username', $req->username);
-        abort_if(!$user, 404, 'user not found');
-
-        $chat = $this->directChatForUsers($user, $req->user());
-        $ok = Message::where('chat_id', $chat->id)
-            ->where('sender_id', $user->id)
-            ->whereNull('read_at')
-            ->update(['read_at' => now()]);
-
-        abort_if(!$ok, 400, 'failed to mark message as read');
+        $userSetting = ChatUserSetting::query()->firstOrCreate([
+            'user_id' => $user->id,
+            'chat_id' => $message->chat_id,
+        ]);
+        if (!$userSetting->last_read_at || $message->created_at > $userSetting->last_read_at) {
+            $userSetting->update(['last_read_at' => $message->created_at]);
+        }
 
         return response()->json([
             'message' => 'message marked as read',
         ], 200);
     }
+
+    // public function markAsReadAll(Request $req)
+    // {
+    //     $user = User::firstWhere('username', $req->username);
+    //     abort_if(!$user, 404, 'user not found');
+
+    //     $chat = $this->directChatForUsers($user, $req->user());
+    //     $ok = Message::where('chat_id', $chat->id)
+    //         ->where('sender_id', $user->id)
+    //         ->whereNull('read_at')
+    //         ->update(['read_at' => now()]);
+
+    //     abort_if(!$ok, 400, 'failed to mark message as read');
+
+    //     return response()->json([
+    //         'message' => 'message marked as read',
+    //     ], 200);
+    // }
 
     // public function destroy(Request $req, string $id)
     // {
@@ -270,7 +284,7 @@ class MessageController extends Controller
     public function destroy(Request $req, string $messageId)
     {
         $req->validate([
-            'delete_for_everyone' => 'optional|boolean',
+            'delete_for_everyone' => 'sometimes|boolean',
         ]);
         $currentUser = $req->user();
         $message = Message::with('chat')->where('id', $messageId)->first();

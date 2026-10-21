@@ -82,3 +82,15 @@ export interface RegisterPayload {
     password: string;
     password_confirmation: string;
 }
+
+export interface DeleteChatPayload {
+    delete_for_everyone?: boolean;
+}
+
+export interface DeleteMessagePayload {
+    delete_for_everyone?: boolean;
+}
+
+export interface ClearChatHistoryPayload {
+    delete_for_everyone?: boolean;
+}

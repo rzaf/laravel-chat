@@ -6,7 +6,9 @@ import MenuIcon from '@/assets/svgs/Menu.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
 import ArchiveBoxIcon from '@/assets/svgs/ArchiveBox.svg';
 import type { Chat } from '@/types';
-import { toggleChatPin, toggleChatMute, toggleChatArchive } from '@/api/index';
+import { toggleChatPin, toggleChatMute, toggleChatArchive, clearChatHistory, deleteChat, markMessageAsRead, markChatAsRead } from '@/api/index';
+import { useConfirm } from '@/composables/useConfirm';
+import router from '@/router';
 
 const emit = defineEmits<{ (e: 'toggleMenu'): void }>();
 const chatStore = useChatStore();
@@ -118,8 +120,69 @@ async function toggle(chat: Chat, key: Key) {
     }
 }
 
-function handleEdit(chat: Chat) { }
-function handleDelete(chat: Chat) { }
+async function handleMarkAsRead(chat: Chat) {
+    if (!chat.id) return;
+    
+    try {
+        await markChatAsRead(chat.id);
+        // handle state/store refresh if needed
+        chatStore.seenAll(chat.id);
+    } catch (error) {
+        console.error('Failed to clear history', error);
+    }
+}
+
+const { confirm } = useConfirm();
+
+
+async function handleClearHistory(chat: Chat) {
+    const res = await confirm({
+        title: 'Clear Chat History',
+        message: `Are you sure you want to clear the history for ${chat.name}?`,
+        confirmText: 'Clear',
+        variant: 'warning',
+        checkboxLabel: chat.type === 'direct' ? undefined : 'Delete messages for everyone', // or based on backend rules
+    });
+
+    const confirmed = typeof res === 'boolean' ? res : res.confirmed;
+    const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
+
+    if (!confirmed || !chat.id) return;
+
+    try {
+        await clearChatHistory(chat.id, deleteForEveryone);
+        // handle state/store refresh if needed
+    } catch (error) {
+        console.error('Failed to clear history', error);
+    }
+}
+
+async function handleDelete(chat: Chat) {
+    const res = await confirm({
+        title: 'Delete Chat',
+        message: `Are you sure you want to delete the chat with ${chat.name}?`,
+        confirmText: 'Delete',
+        variant: 'danger',
+        checkboxLabel: 'Delete for everyone',
+    });
+
+    const confirmed = typeof res === 'boolean' ? res : res.confirmed;
+    const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
+
+    if (!confirmed || !chat.id) return;
+
+    try {
+        const chatId = chat.id;
+        await deleteChat(chatId, deleteForEveryone);
+        chatStore.removeChat(chatId); // Assuming you have a remove method in store
+        if (chatStore.currentChat?.id == chatId) {
+            router.push('/');
+        }
+    } catch (error) {
+        console.error('Failed to delete chat', error);
+    }
+}
+
 </script>
 
 <template>
@@ -223,7 +286,7 @@ function handleDelete(chat: Chat) { }
             <template v-else>
                 <ChatListItem v-for="chat in visibleChats" :key="chat.id ?? chat.slug ?? ''" :chat="chat"
                     :current-chat="chatStore.currentChat" @pin="toggle($event, 'pinned')"
-                    @mute="toggle($event, 'muted')" @archive="toggle($event, 'archived')" @edit="handleEdit"
+                    @mute="toggle($event, 'muted')" @archive="toggle($event, 'archived')" @markAsRead="handleMarkAsRead" @clearHistory="handleClearHistory"
                     @delete="handleDelete" />
             </template>
         </div>

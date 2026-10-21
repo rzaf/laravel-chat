@@ -70,11 +70,11 @@ class ChatController extends Controller
                 $join->on('latest_msg_ids.chat_id', '=', 'chats.id');
             })
             ->leftJoin('messages as latest_msg', 'latest_msg.id', '=', 'latest_msg_ids.id')
-            // Hide chat from list if it was cleared and no new messages arrived after cleared_at
-            ->where(function ($query) {
-                $query->whereNull('chat_user_settings.cleared_at')
-                    ->orWhereColumn('latest_msg.created_at', '>', 'chat_user_settings.cleared_at');
-            })
+            // // Hide chat from list if it was cleared and no new messages arrived after cleared_at
+            // ->where(function ($query) {
+            //     $query->whereNull('chat_user_settings.cleared_at')
+            //         ->orWhereColumn('latest_msg.created_at', '>', 'chat_user_settings.cleared_at');
+            // })
             ->select([
                 DB::raw('COALESCE(chats.slug, peer.username) as slug'),
                 // Priority: Custom Contact Name -> Peer Name -> Chat Name
@@ -97,19 +97,51 @@ class ChatController extends Controller
                         ELSE latest_msg.created_at 
                     END as last_message_created_at'),
                 'latest_msg.sender_id as last_message_sender_id',
-                'latest_msg.read_at as last_message_read_at',
+                DB::raw('
+                    CASE 
+                        WHEN latest_msg.id IS NULL THEN 1
+                        WHEN latest_msg.sender_id = ' . $userId . ' THEN 1
+                        WHEN chat_user_settings.last_read_at IS NOT NULL AND latest_msg.created_at <= chat_user_settings.last_read_at THEN 1
+                        ELSE 0 
+                    END as is_latest_message_read'),
                 DB::raw('COALESCE(chat_media.id, profile_media.id) as profile_id'),
                 // Chat user actions/settings
                 DB::raw('COALESCE(chat_user_settings.is_pinned, 0) as pinned'),
                 DB::raw('COALESCE(chat_user_settings.is_muted, 0) as muted'),
                 DB::raw('COALESCE(chat_user_settings.is_archived, 0) as archived'),
                 'chat_user_settings.draft',
+                'chat_user_settings.last_read_at AS last_read_at',
             ])
             ->selectSub(function ($query) use ($userId) {
                 $query->from('messages')
                     ->whereColumn('messages.chat_id', 'chat_members.chat_id')
                     ->where('messages.sender_id', '!=', $userId)
-                    ->whereNull('messages.read_at')
+                    ->whereNull('messages.deleted_at')
+                    // Check if message is newer than user's last_read_at (or if last_read_at is null)
+                    ->where(function ($q) use ($userId) {
+                        $q->where('messages.created_at', '>', function ($sub) use ($userId) {
+                            $sub->from('chat_user_settings')
+                                ->whereColumn('chat_user_settings.chat_id', 'messages.chat_id')
+                                ->where('chat_user_settings.user_id', $userId)
+                                ->select('last_read_at');
+                        })
+                            ->orWhereNotExists(function ($sub) use ($userId) {
+                                $sub->from('chat_user_settings')
+                                    ->whereColumn('chat_user_settings.chat_id', 'messages.chat_id')
+                                    ->where('chat_user_settings.user_id', $userId)
+                                    ->whereNotNull('chat_user_settings.last_read_at');
+                            });
+                    })
+                    // Ignore messages older than cleared_at
+                    ->where(function ($q) use ($userId) {
+                        $q->whereNotExists(function ($sub) use ($userId) {
+                            $sub->from('chat_user_settings')
+                                ->whereColumn('chat_user_settings.chat_id', 'messages.chat_id')
+                                ->where('chat_user_settings.user_id', $userId)
+                                ->whereNotNull('chat_user_settings.cleared_at')
+                                ->whereColumn('messages.created_at', '<=', 'chat_user_settings.cleared_at');
+                        });
+                    })
                     ->selectRaw('COUNT(*)');
             }, 'unseen_messages_count')
             ->selectSub(function ($query) {
@@ -129,6 +161,10 @@ class ChatController extends Controller
 
         $chat->last_message_created_at = $chat->last_message_created_at
             ? Carbon::parse($chat->last_message_created_at)
+            : null;
+
+        $chat->last_read_at = $chat->last_read_at
+            ? Carbon::parse($chat->last_read_at)
             : null;
 
         $profileId = $chat->profile_id;
@@ -189,7 +225,7 @@ class ChatController extends Controller
     public function destroy(Request $req, string $chatId)
     {
         $req->validate([
-            'delete_for_everyone' => 'optional|boolean',
+            'delete_for_everyone' => 'sometimes|boolean',
         ]);
         $currentUser = $req->user();
         // 1. Find the chat and verify membership
@@ -218,6 +254,10 @@ class ChatController extends Controller
             $chat->messages()->delete();
             // Soft delete the chat globally
             $chat->delete();
+            // delete chat member for current user so it doesn't appear in users chat list
+            ChatMembers::query()->where([
+                'chat_id' => $chat->id,
+            ])->update(['deleted_at' => now()]);
             return response()->json([
                 'message' => 'Chat and its messages deleted for everyone successfully.',
             ], 200);
@@ -248,8 +288,8 @@ class ChatController extends Controller
         ]);
         // delete chat member for current user so it doesn't appear in users chat list
         ChatMembers::query()->where([
-            'user_id'=> $currentUser->id,
-            'chat_id'=> $chat->id,
+            'user_id' => $currentUser->id,
+            'chat_id' => $chat->id,
         ])->update(['deleted_at' => now()]);
 
         return response()->json([
@@ -261,7 +301,7 @@ class ChatController extends Controller
     public function clearHistory(Request $req, string $chatId)
     {
         $req->validate([
-            'delete_for_everyone' => 'optional|boolean',
+            'delete_for_everyone' => 'sometimes|boolean',
         ]);
         $currentUser = $req->user();
         $chat = Chat::query()->where('id', $chatId)->first();
@@ -362,6 +402,28 @@ class ChatController extends Controller
             'message' => 'Chat archive status updated successfully',
             'archived' => (bool) $setting->is_archived,
         ]);
+    }
+
+    /**
+     * mark as read all message of a chat
+     */
+    public function markAsReadChat(Request $req, string $chatId)
+    {
+        $userId = $req->user()->id;
+        $chat = Chat::find($chatId);
+        abort_if(!$chat, 404, 'chat not found');
+        $this->verifyChatMembership($userId, $chat->id);
+
+        $userSetting = ChatUserSetting::query()->firstOrCreate([
+            'user_id' => $req->user()->id,
+            'chat_id' =>  $chat->id
+        ]);
+        $userSetting->update([
+            'last_read_at' => now()
+        ]);
+        return response()->json([
+            'message' => 'messages marked as read',
+        ], 200);
     }
 
     /**

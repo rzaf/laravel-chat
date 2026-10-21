@@ -8,11 +8,14 @@ export interface ConfirmOptions {
     confirmText?: string;
     cancelText?: string;
     variant?: ConfirmVariant;
+    checkboxLabel?: string; // <-- Added
+    checkboxDefault?: boolean; // <-- Added
 }
 
 interface ConfirmState extends ConfirmOptions {
     isOpen: boolean;
-    resolvePromise: ((value: boolean) => void) | null;
+    checkboxValue: boolean; // <-- Added
+    resolvePromise: ((value: boolean | { confirmed: boolean; checkbox: boolean }) => void) | null; // Updated return type
 }
 
 const state = ref<ConfirmState>({
@@ -22,14 +25,13 @@ const state = ref<ConfirmState>({
     confirmText: 'Confirm',
     cancelText: 'Cancel',
     variant: 'danger',
+    checkboxLabel: undefined,
+    checkboxValue: false,
     resolvePromise: null,
 });
 
 export function useConfirm() {
-    /**
-     * Triggers the confirm modal and returns a Promise resolving to true (accepted) or false (cancelled).
-     */
-    function confirm(options: string | ConfirmOptions): Promise<boolean> {
+    function confirm(options: string | ConfirmOptions): Promise<boolean | { confirmed: boolean; checkbox: boolean }> {
         const opts: ConfirmOptions = typeof options === 'string' ? { message: options } : options;
 
         state.value = {
@@ -39,6 +41,8 @@ export function useConfirm() {
             confirmText: opts.confirmText ?? getDefaultConfirmText(opts.variant),
             cancelText: opts.cancelText ?? 'Cancel',
             variant: opts.variant ?? 'danger',
+            checkboxLabel: opts.checkboxLabel,
+            checkboxValue: opts.checkboxDefault ?? false,
             resolvePromise: null,
         };
 
@@ -48,12 +52,20 @@ export function useConfirm() {
     }
 
     function accept(): void {
-        state.value.resolvePromise?.(true);
+        if (state.value.checkboxLabel) {
+            state.value.resolvePromise?.({ confirmed: true, checkbox: state.value.checkboxValue });
+        } else {
+            state.value.resolvePromise?.(true);
+        }
         close();
     }
 
     function close(): void {
-        state.value.resolvePromise?.(false);
+        if (state.value.checkboxLabel) {
+            state.value.resolvePromise?.({ confirmed: false, checkbox: false });
+        } else {
+            state.value.resolvePromise?.(false);
+        }
         state.value.isOpen = false;
     }
 

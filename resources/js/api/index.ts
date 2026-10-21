@@ -50,6 +50,25 @@ export async function updateChatDraft(chatId: number, draft: string | null): Pro
     return data;
 }
 
+
+export async function markChatAsRead(chatId: number): Promise<void> {
+    await apiClient.put(`/api/chats/${chatId}/read`);
+}
+
+export async function deleteChat(chatId: number, deleteForEveryone?: boolean): Promise<{ message: string }> {
+    const { data } = await apiClient.delete<{ message: string }>(`/api/chats/${chatId}`, {
+        data: { delete_for_everyone: deleteForEveryone },
+    });
+    return data;
+}
+
+export async function clearChatHistory(chatId: number, deleteForEveryone?: boolean): Promise<{ message: string }> {
+    const { data } = await apiClient.delete<{ message: string }>(`/api/chats/${chatId}/clear`, {
+        data: { delete_for_everyone: deleteForEveryone },
+    });
+    return data;
+}
+
 /* ----------------------------------------------------------- broadcasting */
 
 export async function broadcastAuthorize(
@@ -65,16 +84,9 @@ export async function broadcastAuthorize(
 
 /* --------------------------------------------------------------- messages */
 
-export async function markPrivateMessageRead(messageId: number): Promise<void> {
-    await apiClient.put(`/api/messages/${messageId}/read`);
+export async function markMessageAsRead(messageId: number | string, signal?: AbortSignal) {
+    return apiClient.put(`/api/messages/${messageId}/read`, {}, { signal });
 }
-
-// export async function sendDirectMessage(username: string, content: string): Promise<Message> {
-//     const { data } = await apiClient.post<{ data: Message }>(`/api/messages/direct/${username}`, {
-//         content,
-//     });
-//     return data.data;
-// }
 
 export async function sendDirectMessage(
     username: string,
@@ -106,6 +118,13 @@ export async function getDirectMessages(
 ): Promise<Paginated<Message>> {
     const { data } = await apiClient.get<Paginated<Message>>(`/api/messages/direct/${username}`, {
         params: page ? { page } : undefined,
+    });
+    return data;
+}
+
+export async function deleteMessage(messageId: number, deleteForEveryone?: boolean): Promise<{ message: string }> {
+    const { data } = await apiClient.delete<{ message: string }>(`/api/messages/${messageId}`, {
+        data: { delete_for_everyone: deleteForEveryone },
     });
     return data;
 }

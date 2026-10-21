@@ -46,8 +46,7 @@ Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], functio
 
     Route::put('/{id}', [MessageController::class, 'update']);
     Route::delete('/{id}', [MessageController::class, 'destroy']);
-    Route::put('/{id}/read', [MessageController::class, 'markAsRead']);
-    Route::put('/users/{username}/readAll', [MessageController::class, 'markAsReadAll']);
+    Route::put('/{id}/read', [MessageController::class, 'markAsReadMessage']);
 });
 
 Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function () {
@@ -60,6 +59,7 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
     Route::patch('/{chatId}/mute', [ChatController::class, 'toggleMute']);
     Route::patch('/{chatId}/archive', [ChatController::class, 'toggleArchive']);
     Route::put('/{chatId}/draft', [ChatController::class, 'updateDraft']);
+    Route::put('/{chatId}/read', [ChatController::class, 'markAsReadChat']);
 });
 
 

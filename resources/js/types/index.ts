@@ -36,6 +36,7 @@ export interface Chat {
     created_at?: string;
     last_message?: string | null;
     last_message_created_at?: string | null;
+    last_read_at?: string | null;
     unseen_messages_count?: number;
     latest_message_attachments_count?: number;
     profile_photo?: string;
