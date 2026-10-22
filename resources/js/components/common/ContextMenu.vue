@@ -97,7 +97,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
         <template v-if="isOpen">
             <!-- Full-screen backdrop catcher: closes menu on outside click -->
-            <div class="fixed inset-0 w-full h-full" @click="emit('close')" :style="{zIndex: currentZIndex}"></div>
+            <div class="fixed inset-0 w-full h-full" @contextmenu.prevent="emit('close')" @click="emit('close')" :style="{zIndex: currentZIndex}"></div>
 
             <div
                 ref="menuRef"

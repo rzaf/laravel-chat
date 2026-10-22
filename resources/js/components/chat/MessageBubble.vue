@@ -1,15 +1,8 @@
 <!-- src/components/chat/MessageBubble.vue -->
 <script setup lang="ts">
 import { useDateFormat } from '@vueuse/core';
-import { useContextMenu } from '@/composables/useContextMenu';
 import type { Attachment } from '@/types';
-import ContextMenu from '@/components/common/ContextMenu.vue';
 import MessageAttachments from '@/components/chat/MessageAttachments.vue';
-import ForwardIcon from '@/assets/svgs/Forward.svg';
-import ReplyIcon from '@/assets/svgs/Reply.svg';
-import CopyIcon from '@/assets/svgs/Copy.svg';
-import FlagIcon from '@/assets/svgs/Flag.svg';
-import TrashIcon from '@/assets/svgs/Trash.svg';
 
 defineProps<{
     id?: number;
@@ -17,85 +10,29 @@ defineProps<{
     time: string;
     isSent?: boolean;
     attachments?: Attachment[];
+    isMenuOpen?: boolean;
 }>();
 
-const { isOpen, x, y, open, close } = useContextMenu();
+const emit = defineEmits<{
+    (e: 'openMenu', event: MouseEvent): void;
+}>();
 </script>
 
 <template>
     <div class="z-10 flex items-center px-3 my-2 chat" :class="{ 'flex-row-reverse': isSent }">
-        <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="close">
-            <ul>
-                <li>
-                    <a href="#" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                        <ReplyIcon class="w-4 h-4 mr-2" />
-                        Reply
-                    </a>
-                </li>
-                <li>
-                    <a href="#" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                        <ForwardIcon class="w-4 h-4 mr-2" />
-                        Forward
-                    </a>
-                </li>
-                <li>
-                    <a href="#" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                        <CopyIcon class="w-4 h-4 mr-2" />
-                        Copy
-                    </a>
-                </li>
-                <li>
-                    <a href="#" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                        <FlagIcon class="w-4 h-4 mr-2" />
-                        Report
-                    </a>
-                </li>
-                <li>
-                    <a href="#" class="flex items-center p-2 hover:bg-gray-200 dark:hover:bg-gray-500">
-                        <TrashIcon class="w-4 h-4 mr-2" />
-                        Delete
-                    </a>
-                </li>
-            </ul>
-        </ContextMenu>
-
-
-
-        <div
-            class="rounded-md min-w-32 max-w-[90%] sm:max-w-[75%]"
-            :class="{
-                'text-gray-200 ml-6 bg-blue-700': isSent,
-                'mr-6 bg-white dark:bg-gray-600': !isSent,
-            }"
-            @contextmenu.prevent="open"
-        >
+        <div class="rounded-xl min-w-32 max-w-[90%] sm:max-w-[75%] transition-all duration-150" :class="{
+            'text-gray-200 ml-6 bg-blue-700 shadow-sm': isSent,
+            'mr-6 bg-white dark:bg-gray-600 shadow-sm': !isSent,
+            'ring-2 ring-gray-500 dark:ring-gray-400': isMenuOpen
+        }" @contextmenu.prevent="emit('openMenu', $event)">
             <MessageAttachments :attachments="attachments" :is-sent="isSent" />
 
-            <div class="flex flex-col p-2">
-                
+            <div class="flex flex-col p-2.5">
                 <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-                <p class="self-end ml-2 mt-1 text-sm leading-none opacity-80">
+                <p class="self-end ml-2 mt-1 text-xs leading-none opacity-80">
                     {{ useDateFormat(time, 'HH:mm A') }}
                 </p>
             </div>
-
         </div>
-<!-- 
-        <div
-            class="flex flex-col p-2 rounded-md min-w-32 max-w-[90%] sm:max-w-[75%]"
-            :class="{
-                'text-gray-200 ml-6 bg-blue-700': isSent,
-                'mr-6 bg-white dark:bg-gray-600': !isSent,
-            }"
-            @contextmenu.prevent="open"
-        >
-            <MessageAttachments :attachments="attachments" :is-sent="isSent" />
-            <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-            
-
-            <p class="self-end ml-2 mt-1 text-sm leading-none opacity-80">
-                {{ useDateFormat(time, 'HH:mm A') }}
-            </p>
-        </div> -->
     </div>
 </template>

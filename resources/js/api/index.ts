@@ -122,7 +122,7 @@ export async function getDirectMessages(
     return data;
 }
 
-export async function deleteMessage(messageId: number, deleteForEveryone?: boolean): Promise<{ message: string }> {
+export async function deleteMessage(messageId: string, deleteForEveryone?: boolean): Promise<{ message: string }> {
     const { data } = await apiClient.delete<{ message: string }>(`/api/messages/${messageId}`, {
         data: { delete_for_everyone: deleteForEveryone },
     });

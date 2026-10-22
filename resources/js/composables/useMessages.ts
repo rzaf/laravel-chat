@@ -74,6 +74,13 @@ export function useMessages() {
         messages.value.push(message);
     }
 
+    function removeMessage(messageId: any): void {
+        if (messages.value != null && messages.value.length > 0) {
+            let id = messages.value.findIndex((c) => c.id == messageId);
+            messages.value.splice(id, 1);
+        }
+    }
+
     return {
         messages,
         timeline,
@@ -85,5 +92,6 @@ export function useMessages() {
         loadOlder,
         send,
         append,
+        removeMessage,
     };
 }
