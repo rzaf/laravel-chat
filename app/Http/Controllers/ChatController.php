@@ -174,6 +174,9 @@ class ChatController extends Controller
         // Frontend Action Properties
         $chat->pinned = (bool) $chat->pinned;
         $chat->muted = (bool) $chat->muted;
+        $chat->muted_until = $chat->muted_until
+            ? Carbon::parse($chat->muted_until)
+            : null;
         $chat->archived = (bool) $chat->archived;
         // $chat->is_online = (bool) $chat->is_online;
         $chat->is_typing = false;
@@ -358,26 +361,33 @@ class ChatController extends Controller
         ]);
     }
 
+    public static array $muteDurations = ['15m' => 15, '1h' => 60, '8h' => 8 * 60, '24h' => 24 * 60, '1w' => 7 * 24 * 60, 'forever' => null];
+
     /**
-     * Toggle or set mute status for a chat.
+     * set mute status for a chat.
      */
-    public function toggleMute(Request $req, string $chatId)
+    public function setMute(Request $req, string $chatId)
     {
         $userId = $req->user()->id;
         $req->validate([
-            'is_muted' => 'required|boolean',
+            'duration' => 'nullable|in:' . implode(',', array_keys(self::$muteDurations)),
         ]);
         $chat = Chat::find($chatId);
         $this->verifyChatMembership($userId, $chat->id);
+        $mutedUntil = null;
+        if ($req->duration && $req->duration != 'forever') {
+            $mutedUntil = now()->addMinutes(self::$muteDurations[$req->duration]);
+        }
 
         $setting = \App\Models\ChatUserSetting::updateOrCreate(
             ['user_id' => $userId, 'chat_id' => $chat->id],
-            ['is_muted' => $req->boolean('is_muted')]
+            ['is_muted' => $req->duration !== null, 'muted_until' => $mutedUntil]
         );
 
         return response()->json([
             'message' => 'Chat mute status updated successfully',
             'muted' => (bool) $setting->is_muted,
+            'muted_until' => $setting->muted_until,
         ]);
     }
 

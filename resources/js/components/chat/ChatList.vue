@@ -5,8 +5,8 @@ import ChatListItem from '@/components/chat/ChatListItem.vue';
 import MenuIcon from '@/assets/svgs/Menu.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
 import ArchiveBoxIcon from '@/assets/svgs/ArchiveBox.svg';
-import type { Chat } from '@/types';
-import { toggleChatPin, toggleChatMute, toggleChatArchive, clearChatHistory, deleteChat, markMessageAsRead, markChatAsRead } from '@/api/index';
+import type { Chat, MuteDuration } from '@/types';
+import { toggleChatPin, setChatMute, toggleChatArchive, clearChatHistory, deleteChat, markMessageAsRead, markChatAsRead } from '@/api/index';
 import { useConfirm } from '@/composables/useConfirm';
 import router from '@/router';
 
@@ -107,8 +107,8 @@ const emptyCopy = computed(() => {
 });
 
 /* ---------- actions ---------- */
-type Key = 'pinned' | 'muted' | 'archived';
-const api = { pinned: toggleChatPin, muted: toggleChatMute, archived: toggleChatArchive } as const;
+type Key = 'pinned' | 'archived';
+const api = { pinned: toggleChatPin, archived: toggleChatArchive } as const;
 
 async function toggle(chat: Chat, key: Key) {
     if (!chat.id) return;
@@ -117,6 +117,19 @@ async function toggle(chat: Chat, key: Key) {
         chat[key] = (res as Record<Key, boolean>)[key];
     } catch (error) {
         console.error(`Failed to update ${key} status`, error);
+    }
+}
+
+async function handleMute(chat: Chat, duration: MuteDuration) {
+    if (!chat.id) return;
+    
+    try {
+        const res = await setChatMute(chat.id, duration);
+        chat.muted = res.muted;
+        chat.mutedFor = duration;
+        chat.muted_until = res.muted_until;
+    } catch (error) {
+        console.error('Failed to mute', error);
     }
 }
 
@@ -286,7 +299,7 @@ async function handleDelete(chat: Chat) {
             <template v-else>
                 <ChatListItem v-for="chat in visibleChats" :key="chat.id ?? chat.slug ?? ''" :chat="chat"
                     :current-chat="chatStore.currentChat" @pin="toggle($event, 'pinned')"
-                    @mute="toggle($event, 'muted')" @archive="toggle($event, 'archived')" @markAsRead="handleMarkAsRead" @clearHistory="handleClearHistory"
+                    @mute="handleMute" @archive="toggle($event, 'archived')" @markAsRead="handleMarkAsRead" @clearHistory="handleClearHistory"
                     @delete="handleDelete" />
             </template>
         </div>

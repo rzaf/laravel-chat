@@ -1,5 +1,5 @@
 import { apiClient, publicClient } from '@/api/client';
-import type { Attachment, Chat, Contact, Message, User } from '@/types';
+import type { Attachment, Chat, Contact, Message, MuteDuration, User } from '@/types';
 import type {
     AuthResponse,
     BroadcastAuthResponse,
@@ -19,8 +19,8 @@ export async function getChatList(): Promise<Chat[]> {
 }
 
 
-export async function getChatBySlug(slug :string): Promise<{ chat: Chat; user: User }> {
-    const { data } = await apiClient.get<{ chat: Chat; user: User }>('/api/chats/'+slug);
+export async function getChatBySlug(slug: string): Promise<{ chat: Chat; user: User }> {
+    const { data } = await apiClient.get<{ chat: Chat; user: User }>('/api/chats/' + slug);
     return data ?? [];
 }
 
@@ -31,9 +31,9 @@ export async function toggleChatPin(chatId: number, isPinned: boolean): Promise<
     return data;
 }
 
-export async function toggleChatMute(chatId: number, isMuted: boolean): Promise<{ muted: boolean }> {
-    const { data } = await apiClient.patch<{ muted: boolean }>(`/api/chats/${chatId}/mute`, {
-        'is_muted': isMuted,
+export async function setChatMute(chatId: number, duration: MuteDuration): Promise<{ muted: boolean, muted_until: number | null }> {
+    const { data } = await apiClient.patch<{ muted: boolean, muted_until: number | null }>(`/api/chats/${chatId}/mute`, {
+        'duration': duration,
     });
     return data;
 }
@@ -131,7 +131,7 @@ export async function deleteMessage(messageId: number, deleteForEveryone?: boole
 
 /* -------------------------------------------------------- contacts / users */
 
-export async function searchUsers(term: string, page = 1, notInContacts :boolean = true): Promise<Paginated<User>> {
+export async function searchUsers(term: string, page = 1, notInContacts: boolean = true): Promise<Paginated<User>> {
     const { data } = await apiClient.get<Paginated<User>>(`/api/users/search/${term}`, {
         params: { page, notInContacts },
     });
@@ -154,8 +154,8 @@ export async function deleteContact(username: string): Promise<void> {
     await apiClient.delete(`/api/contacts/users/${username}`);
 }
 
-export async function getProfilePhotos(username :string, page :number = 1): Promise<ResourceCollectionPaginated<Attachment>> {
-    const { data } = await apiClient.get<ResourceCollectionPaginated<Attachment>>(`/api/users/${username}/profiles`,{
+export async function getProfilePhotos(username: string, page: number = 1): Promise<ResourceCollectionPaginated<Attachment>> {
+    const { data } = await apiClient.get<ResourceCollectionPaginated<Attachment>>(`/api/users/${username}/profiles`, {
         params: page ? { page } : undefined,
     });
     return data ?? [];

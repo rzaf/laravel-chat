@@ -50,6 +50,8 @@ export interface Chat {
 
     pinned: boolean;
     muted: boolean;
+    mutedFor: MuteDuration;
+    muted_until: number | null;
     archived: boolean;
     is_online: boolean;
     is_typing: boolean;
@@ -126,3 +128,6 @@ export interface Contact {
         username: string;
     };
 }
+
+
+export type MuteDuration = '15m' | '1h' | '8h' | '24h' | '1w' | 'forever' | null;

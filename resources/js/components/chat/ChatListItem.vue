@@ -1,14 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import { formattedTimestamp } from '@/helpers/time';
 import { useContextMenu } from '@/composables/useContextMenu';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 // import BellSlashIcon from '@/assets/svgs/BellSlash.svg';
 import MuteXIcon from '@/assets/svgs/MuteX.svg';
+import MuteOffIcon from '@/assets/svgs/MuteOff.svg';
 import PinIcon from '@/assets/svgs/Pin.svg';
-import type { Chat } from '@/types';
+import PinOffIcon from '@/assets/svgs/PinOff.svg';
+import ArchiveBoxIcon from '@/assets/svgs/ArchiveBox.svg';
+import ArchiveRestoreIcon from '@/assets/svgs/ArchiveRestore.svg';
+import TrashIcon from '@/assets/svgs/Trash.svg';
+import RefreshCwIcon from '@/assets/svgs/RefreshCw.svg';
+import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
+import type { Chat, MuteDuration } from '@/types';
 import Avatar from './Avatar.vue';
+
+// export type MuteDuration = '15m' | '1h' | '8h' | '24h' | '1w' | 'forever' | null;
 
 const props = defineProps<{
     chat: Chat;
@@ -16,7 +25,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: 'mute', chat: Chat): void;
+    (e: 'mute', chat: Chat, duration?: MuteDuration): void;
     (e: 'pin', chat: Chat): void;
     (e: 'archive', chat: Chat): void;
     (e: 'markAsRead', chat: Chat): void;
@@ -45,13 +54,23 @@ const previewPrefix = computed(() => {
     return '';
 });
 
-function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' | 'delete') {
-    if (action === 'mute') emit('mute', props.chat);
+const muteOptions: { label: string; value: MuteDuration }[] = [
+    { label: 'For 15 minutes', value: '15m' },
+    { label: 'For 1 hour', value: '1h' },
+    { label: 'For 8 hours', value: '8h' },
+    { label: 'For 24 hours', value: '24h' },
+    { label: 'For 1 week', value: '1w' },
+    { label: 'Until I turn it back on', value: 'forever' },
+];
+
+function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' | 'delete', duration?: MuteDuration) {
+    if (action === 'mute') emit('mute', props.chat, duration);
     else if (action === 'pin') emit('pin', props.chat);
     else if (action === 'archive') emit('archive', props.chat);
     else if (action === 'markAsRead') emit('markAsRead', props.chat);
     else if (action === 'clearHistory') emit('clearHistory', props.chat);
     else emit('delete', props.chat);
+
     close();
 }
 </script>
@@ -72,7 +91,6 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                     :class="isActive ? 'lg:border-blue-600' : 'border-white dark:border-gray-800'"
                     title="Online"></span>
             </div>
-            <!-- <PinIcon v-if="chat.pinned" class="size-3 absolute top-1 right-1 rotate-45 opacity-60" /> -->
 
             <div class="flex flex-col flex-1 min-w-0 gap-0.5">
                 <!-- Row 1: name + pin + mute + time -->
@@ -81,7 +99,6 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                         {{ chat.name }}
                     </h3>
 
-                    <!-- Move Pin here so it flows naturally with the text -->
                     <PinIcon v-if="chat.pinned" class="size-3.5 shrink-0 rotate-45 opacity-50" aria-label="Pinned" />
 
                     <MuteXIcon v-if="chat.muted" class="size-4 shrink-0 opacity-50" stroke-width="2" />
@@ -107,10 +124,6 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                     </p>
 
                     <div class="flex items-center gap-1.5 ml-auto shrink-0">
-                        <!-- <svg v-if="chat.pinned && unseen === 0" class="size-3.5 opacity-50" viewBox="0 0 24 24"
-                            fill="currentColor" aria-label="Pinned">
-                            <path d="M16 3H8v2l2 2v5l-3 3v2h4v5l1 1 1-1v-5h4v-2l-3-3V7l2-2z" />
-                        </svg> -->
                         <span v-if="unseen > 0"
                             class="grid px-1.5 text-xs font-medium rounded-full min-w-5 h-5 place-items-center" :class="isActive
                                 ? 'lg:bg-white lg:text-blue-600'
@@ -126,42 +139,88 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
         </RouterLink>
 
         <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="close">
-            <ul class="py-1 text-sm min-w-40">
+            <ul class="py-1 text-sm min-w-44">
                 <li>
-                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('pin')">
-                        {{ chat.pinned ? 'Unpin' : 'Pin to top' }}
+                        <component :is="chat.pinned ? PinOffIcon : PinIcon" class="size-4 opacity-70 shrink-0" />
+                        <span>{{ chat.pinned ? 'Unpin' : 'Pin to top' }}</span>
                     </button>
                 </li>
-                <li>
-                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
-                        @click="act('mute')">
-                        {{ chat.muted ? 'Unmute' : 'Mute' }}
+
+                <!-- Mute with Hoverable Submenu -->
+                <li v-if="chat.muted">
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('mute', null)">
+                        <MuteOffIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Unmute</span>
                     </button>
                 </li>
+                <!-- Mute with Hoverable Submenu -->
+                <li v-else class="relative group">
+                    <button type="button"
+                        class="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600">
+                        <div class="flex items-center gap-2.5">
+                            <MuteXIcon class="size-4 opacity-70 shrink-0" />
+                            <span>Mute</span>
+                        </div>
+                        <!-- Chevron Right Icon -->
+                        <svg class="size-3.5 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+
+                    <!-- Invisible padding bridge + Submenu container -->
+                    <div class="hidden group-hover:block group-focus-within:block absolute left-full top-0 pl-1">
+                        <div
+                            class="py-1 w-48 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-lg">
+                            <ul>
+                                <li v-for="option in muteOptions" :key="option.value ?? 'unmute'">
+                                    <button type="button"
+                                        class="w-full px-3 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        @click="act('mute', option.value)">
+                                        {{ option.label }}
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </li>
+
                 <li>
-                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('archive')">
-                        {{ chat.archived ? 'Unarchive' : 'Archive' }}
+                        <component :is="chat.archived ? ArchiveRestoreIcon : ArchiveBoxIcon"
+                            class="size-4 opacity-70 shrink-0" />
+                        <span>{{ chat.archived ? 'Unarchive' : 'Archive' }}</span>
                     </button>
                 </li>
                 <li>
-                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('markAsRead')">
-                        Mark as read
+                        <CircleCheckIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Mark as read</span>
                     </button>
                 </li>
                 <li>
-                    <button type="button" class="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('clearHistory')">
-                        Clear History
+                        <RefreshCwIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Clear History</span>
                     </button>
                 </li>
                 <li class="mt-1 border-t border-gray-100 dark:border-gray-600">
                     <button type="button"
-                        class="w-full px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-gray-600"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-gray-600"
                         @click="act('delete')">
-                        Delete
+                        <TrashIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Delete</span>
                     </button>
                 </li>
             </ul>
