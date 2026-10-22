@@ -92,6 +92,8 @@ export async function sendDirectMessage(
     username: string,
     content: string,
     attachments: File[] = [],
+    replyToId: number | null = null,
+    forwardedFromMessageId: number | null = null,
 ): Promise<Message> {
     const form = new FormData();
     if (content) {
@@ -100,6 +102,12 @@ export async function sendDirectMessage(
     attachments.forEach((file, index) => {
         form.append(`attachments[${index}]`, file);
     });
+    if (replyToId != null) {
+        form.append('reply_to_id', String(replyToId));
+    }
+    if (forwardedFromMessageId != null) {
+        form.append('forwarded_from_message_id', String(forwardedFromMessageId));
+    }
     const { data } = await apiClient.post<{ data: Message }>(
         `/api/messages/direct/${username}`,
         form,
@@ -110,6 +118,18 @@ export async function sendDirectMessage(
         },
     );
     return data.data;
+}
+
+/**
+ * Forward an existing message to another user's direct chat.
+ * The text is sent along with `forwarded_from_message_id` so the backend can
+ * mark it as forwarded (and copy attachments, which cannot be re-uploaded here).
+ */
+export async function forwardMessage(
+    username: string,
+    message: Pick<Message, 'id' | 'content'>,
+): Promise<Message> {
+    return sendDirectMessage(username, message.content ?? '', [], null, Number(message.id));
 }
 
 export async function getDirectMessages(

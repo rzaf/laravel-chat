@@ -18,6 +18,8 @@ return new class extends Migration
             $table->foreignId('sender_id')->constrained('users');
             $table->string('content', 1024);
 
+            $table->foreignId('reply_to_id')->nullable()->constrained('messages')->nullOnDelete();
+            $table->foreignId('forwarded_from_message_id')->nullable()->constrained('messages')->nullOnDelete();
             $table->timestamps();
             $table->softDeletes();
 

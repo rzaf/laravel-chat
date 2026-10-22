@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Message extends Model
 {
-    use HasFactory, SoftDeletes , HasMedia;
+    use HasFactory, SoftDeletes, HasMedia;
 
     protected $table = 'messages';
 
@@ -24,5 +24,15 @@ class Message extends Model
     public function sender(): BelongsTo
     {
         return $this->belongsTo(User::class, 'sender_id');
+    }
+
+    public function replyTo()
+    {
+        return $this->belongsTo(Message::class, 'reply_to_id');
+    }
+
+    public function forwardedFromMessage()
+    {
+        return $this->belongsTo(Message::class, 'forwarded_from_message_id');
     }
 }

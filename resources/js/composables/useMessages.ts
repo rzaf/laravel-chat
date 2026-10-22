@@ -19,6 +19,8 @@ export function useMessages() {
     const userExists = ref<boolean | null>(null);
     const isLastPage = ref(false);
     let page = 1;
+    /** Slug of the chat currently shown; used to ignore responses for a chat we've left. */
+    let currentSlug: string | null = null;
 
     function reset(): void {
         messages.value = [];
@@ -30,6 +32,7 @@ export function useMessages() {
 
     async function loadInitial(slug: string): Promise<void> {
         reset();
+        currentSlug = slug;
         try {
             const { data } = await getDirectMessages(slug);
             userExists.value = true;
@@ -63,10 +66,20 @@ export function useMessages() {
         return true;
     }
 
-    async function send(slug: string, content: string, attachments: File[] = []): Promise<Message> {
-        const message = await sendDirectMessage(slug, content, attachments);
-        messages.value.push(message);
-        isChatEmpty.value = false;
+    async function send(
+        slug: string,
+        content: string,
+        attachments: File[] = [],
+        replyToId: number | null = null,
+        forwardedFromMessageId: number | null = null,
+    ): Promise<Message> {
+        const message = await sendDirectMessage(slug, content, attachments, replyToId, forwardedFromMessageId);
+        // The user may have switched chats while the request was in flight;
+        // don't leak the new message into another chat's timeline.
+        if (slug === currentSlug) {
+            messages.value.push(message);
+            isChatEmpty.value = false;
+        }
         return message;
     }
 
@@ -76,8 +89,11 @@ export function useMessages() {
 
     function removeMessage(messageId: any): void {
         if (messages.value != null && messages.value.length > 0) {
-            let id = messages.value.findIndex((c) => c.id == messageId);
-            messages.value.splice(id, 1);
+            const index = messages.value.findIndex((c) => c.id == messageId);
+            // findIndex returns -1 when missing; splice(-1, 1) would delete the LAST message.
+            if (index !== -1) {
+                messages.value.splice(index, 1);
+            }
         }
     }
 

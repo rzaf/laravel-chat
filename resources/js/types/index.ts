@@ -85,9 +85,12 @@ export interface Message {
     from?: number;
     created_at: string;
     updated_at?: string;
-    read_at?: string | null;
     chat?: Chat | null; // chat relation of Message
     attachments?: Attachment[];
+    reply_to_id?: number;
+    reply_to?: Message;
+    forwarded_from_message_id?: number;
+    forwarded_from?: Chat;
 }
 
 /** Payload of the `NewPrivateMessage` broadcast event. */
@@ -98,8 +101,11 @@ export interface IncomingMessage {
     from: number;
     created_at: string;
     updated_at: string;
-    read_at: string | null;
     attachments?: Attachment[];
+    reply_to_id?: number;
+    reply_to?: Message;
+    forwarded_from_message_id?: number;
+    forwarded_from?: Chat;
 }
 
 /** A day divider injected between messages in the timeline. */

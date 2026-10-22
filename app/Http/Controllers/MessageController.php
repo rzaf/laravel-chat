@@ -103,7 +103,7 @@ class MessageController extends Controller
             ->where('chat_id', $chat->id)
             ->first();
         $query = Message::query()
-            ->with('media')
+            ->with(['media', 'replyTo.sender', 'forwardedFromMessage.sender', 'forwardedFromMessage.chat'])
             ->where('chat_id', $chat->id)
             // Exclude messages deleted individually by this user ("Delete for Me")
             ->whereNotExists(function ($subQuery) use ($currentUser) {
@@ -143,13 +143,14 @@ class MessageController extends Controller
     //             return $message;
     //         });
     // }
-
     /**
-     * send message
+     * Send message
      * 
      * @bodyParam content string optional The message content. Example: message
      * @bodyParam attachments[0] file optional First file attachment.
      * @bodyParam attachments[1] file optional Second file attachment.     
+     * @bodyParam reply_to_id integer optional The ID of the message being replied to.
+     * @bodyParam forwarded_from_message_id integer optional The ID of the message being forwarded.
      * 
      * @response 200 {}
      */
@@ -161,19 +162,43 @@ class MessageController extends Controller
         abort_if($currentUser->username == $username, 400, 'cant message yourself');
 
         $validated = $req->validate([
-            'content' => 'required_without:attachments|string|max:1024',
+            'content' => 'required_without_all:attachments,forwarded_from_message_id|string|max:1024',
             'attachments' => 'nullable|array',
             'attachments.*' => 'file|max:102400|mimes:' . implode(',', static::$mimes),
+            'reply_to_id' => 'nullable|exists:messages,id',
+            'forwarded_from_message_id' => 'nullable|exists:messages,id',
         ]);
 
         try {
             DB::beginTransaction();
             $chat = $this->directChatForUsers($currentUser, $user);
+
+            // Optional Security check: ensure reply_to_id belongs to a chat the user is part of
+            if (!empty($validated['reply_to_id'])) {
+                $replyMessage = Message::find($validated['reply_to_id']);
+                // Ensure target message belongs to this current chat or user has access
+                abort_if($replyMessage && $replyMessage->chat_id !== $chat->id, 403, 'Cannot reply to a message from another chat');
+            }
+            // Determine content: if it's a forward, fetch content directly from the original message model
+            $content = $validated['content'] ?? '';
+            $forwardedFromMessageId = null;
+            if (!empty($validated['forwarded_from_message_id'])) {
+                $sourceMessage = Message::find($validated['forwarded_from_message_id']);
+                abort_if(!$sourceMessage, 404, 'Source message to forward not found');
+                $content = $sourceMessage->content;
+                // If the source message was *also* a forward, point to its original root message ID,
+                // otherwise point directly to the source message.
+                $forwardedFromMessageId = $sourceMessage->forwarded_from_message_id ?? $sourceMessage->id;
+            }
+
             $message = Message::create([
                 'chat_id' => $chat->id,
                 'sender_id' => $currentUser->id,
-                'content' => $validated['content'] ?? '',
+                'content' => $content,
+                'reply_to_id' => $validated['reply_to_id'] ?? null,
+                'forwarded_from_message_id' => $forwardedFromMessageId,
             ]);
+
             if ($req->hasFile('attachments')) {
                 foreach ($req->file('attachments') as $file) {
                     $mediaService->upload(
@@ -191,8 +216,7 @@ class MessageController extends Controller
             // abort(500, $th->getMessage());
         }
 
-
-        $message->load(['chat', 'media']);
+        $message->load(['chat', 'media', 'replyTo.sender', 'forwardedFromMessage.sender', 'forwardedFromMessage.chat']);
         $message->chat->name = $message->chat->name ?? $user->name;
         $message->chat->slug = $message->chat->slug ?? $user->username;
         $message->chat->direct_user_id = $user->id;
@@ -204,7 +228,6 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => 'message created',
-            // 'data' => $message,
             'data' => new MessageResource($message),
         ], 201);
     }

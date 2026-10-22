@@ -15,15 +15,17 @@ import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
 import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
 import ForwardIcon from '@/assets/svgs/Forward.svg';
 import ReplyIcon from '@/assets/svgs/Reply.svg';
+import CloseIcon from '@/assets/svgs/Close.svg';
 import CopyIcon from '@/assets/svgs/Copy.svg';
 import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
 import Avatar from './Avatar.vue';
 import { onKeyStroke } from '@vueuse/core';
 import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { deleteMessage, markChatAsRead } from '@/api/index.ts';
+import { deleteMessage, forwardMessage, markChatAsRead } from '@/api/index.ts';
 import { useContextMenu } from '@/composables/useContextMenu';
 import { useConfirm } from '@/composables/useConfirm.ts';
+import ForwardModal from '@/components/modals/ForwardModal.vue';
 
 const props = defineProps<{ chat: Chat }>();
 const router = useRouter();
@@ -55,20 +57,27 @@ function handleCloseMenu() {
     activeMenuMessage.value = null;
 }
 
+const replyingToMessage = ref<Message | null>(null);
+const forwardModalRef = useTemplateRef<InstanceType<typeof ForwardModal>>('forwardModalRef');
 
 const { confirm } = useConfirm();
 async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' | 'delete') {
     const msg = activeMenuMessage.value;
     if (!msg) return;
 
+    // Find the full Message object from messages array if needed
+    const fullMessage = messages.value.find(m => String(m.id) === String(msg.id)) ?? null;
+
     switch (action) {
         case 'reply':
-            console.log('Reply to message:', msg);
-            // TODO: Complete reply logic
+            if (fullMessage) {
+                replyingToMessage.value = fullMessage;
+            }
             break;
         case 'forward':
-            console.log('Forward message:', msg);
-            // TODO: Complete forward logic
+            if (fullMessage) {
+                forwardModalRef.value?.open(fullMessage);
+            }
             break;
         case 'copy':
             if (msg.text) {
@@ -98,8 +107,11 @@ async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' 
 
             try {
                 await deleteMessage(msg.id, deleteForEveryone);
-                removeMessage(msg.id)
-                
+                removeMessage(msg.id);
+                // Can't reply to a message that no longer exists.
+                if (replyingToMessage.value && String(replyingToMessage.value.id) === String(msg.id)) {
+                    replyingToMessage.value = null;
+                }
             } catch (error) {
                 console.error('Failed to clear history', error);
             }
@@ -108,7 +120,7 @@ async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' 
     handleCloseMenu();
 }
 
-const { messages, timeline, isChatEmpty, isLastPage, userExists, loadInitial, loadOlder, send, append,removeMessage } = useMessages();
+const { messages, timeline, isChatEmpty, isLastPage, userExists, loadInitial, loadOlder, send, append, removeMessage } = useMessages();
 const {
     showGoToBottom, scrollToBottom, scrollToMessageBottom, lastVisibleMessageId,
     isAtTop, isNearBottom, updateGoToBottom, preserveOnPrepend,
@@ -160,6 +172,21 @@ const rows = computed<Row[]>(() =>
 );
 
 const hasMessages = computed(() => messages.value.length > 0);
+
+/** id → message lookup so each bubble can resolve its reply target in O(1). */
+const messagesById = computed(() => new Map(messages.value.map((m) => [String(m.id), m])));
+
+const replyPreviewAuthor = computed(() => {
+    const m = replyingToMessage.value;
+    if (!m) return '';
+    return messageSenderId(m) === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
+});
+const replyPreviewText = computed(() => {
+    const m = replyingToMessage.value;
+    if (!m) return '';
+    if (m.content) return m.content;
+    return m.attachments?.length ? 'Attachment' : '';
+});
 
 const ts = (m: Message) => new Date(m.created_at).getTime();
 const lastReadMs = () => (props.chat.last_read_at ? new Date(props.chat.last_read_at).getTime() : 0);
@@ -218,6 +245,8 @@ async function waitForList(previous: HTMLElement | null): Promise<void> {
 watch(
     () => props.chat.slug,
     (slug) => {
+        // A pending reply refers to a message in the previous chat.
+        replyingToMessage.value = null;
         if (slug) {
             void openChat(slug);
         }
@@ -278,7 +307,8 @@ async function handleSend(): Promise<void> {
     }
     sending.value = true;
     try {
-        const message = await send(slug, content, attachments.value);
+        const replyToId = replyingToMessage.value?.id != null ? Number(replyingToMessage.value.id) : null;
+        const message = await send(slug, content, attachments.value, replyToId);
         if (props.chat.id == null) {
             chatStore.addChat(
                 message?.chat?.id || 0,
@@ -289,6 +319,7 @@ async function handleSend(): Promise<void> {
             );
             chatStore.selectChatBySlug(slug);
         }
+        replyingToMessage.value = null;
         draft.value = '';
         attachments.value = [];
         if (props.chat.id != null) {
@@ -299,11 +330,81 @@ async function handleSend(): Promise<void> {
         if (props.chat.id != null) {
             chatStore.seenAll(props.chat.id);
         }
-    } catch {
-        // Network error
+    } catch (error) {
+        // Draft, attachments and the reply target are kept so the user can retry.
+        console.error('Failed to send message', error);
     } finally {
         sending.value = false;
     }
+}
+
+/** Guards against double-clicks forwarding the same message to the same chat twice. */
+const forwardsInFlight = new Set<string>();
+
+async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
+    const slug = targetChat.slug;
+    if (!slug) return;
+    const key = `${msg.id}:${slug}`;
+    if (forwardsInFlight.has(key)) return;
+    forwardsInFlight.add(key);
+    try {
+        const isCurrentChat = slug === props.chat.slug;
+        // Forwarding into the open chat must appear in its timeline (send() appends);
+        // forwarding elsewhere must NOT touch the open chat's timeline.
+        const sent = isCurrentChat
+            ? await send(slug, msg.content ?? '', [], null, Number(msg.id))
+            : await forwardMessage(slug, msg);
+
+        if (targetChat.id != null) {
+            chatStore.setLastMessage(targetChat.id, sent.content, sent.created_at);
+        }
+        if (isCurrentChat) {
+            await nextTick();
+            scrollToBottom(true);
+        }
+    } finally {
+        forwardsInFlight.delete(key);
+    }
+}
+
+async function handleForwardMessage(targetChats: Chat[], msgToForward: Message): Promise<void> {
+    if (msgToForward.id == null) return;
+    const targets = targetChats.filter((c) => c.slug);
+
+    const results = await Promise.allSettled(targets.map((chat) => forwardTo(chat, msgToForward)));
+    results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+            console.error(`Failed to forward message to ${targets[i].slug}`, r.reason);
+        }
+    });
+
+    // Single, successful target elsewhere → open it. Multiple targets → stay put.
+    const delivered = targets.filter((_, i) => results[i].status === 'fulfilled');
+    if (targets.length === 1 && delivered.length === 1 && delivered[0].slug !== props.chat.slug) {
+        router.push(`/user/${delivered[0].slug}`);
+    }
+}
+
+/* ---------- reply / forward helpers for bubbles ---------- */
+
+const messageOf = (row: { id?: string }) => (row.id != null ? messagesById.value.get(String(row.id)) : undefined);
+
+function replyAuthorOf(row: { id?: string }): string | undefined {
+    const reply = messageOf(row)?.reply_to;
+    if (!reply) return undefined;
+    const full = messagesById.value.get(String(reply.id)) ?? reply;
+    return messageSenderId(full) === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
+}
+
+/** Scroll to a replied-to message (if it's loaded) and flash it briefly. */
+function jumpToMessage(messageId: number | string): void {
+    const el = listRef.value?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el.animate(
+        [{ backgroundColor: 'rgba(59, 130, 246, 0.25)' }, { backgroundColor: 'transparent' }],
+        { duration: 1400, easing: 'ease-out' },
+    );
 }
 
 type MessageRow = Extract<Row, { kind: 'message' }>;
@@ -323,6 +424,10 @@ const groups = computed(() => {
 
 onKeyStroke('Escape', () => {
     if (hasOpenOverlay.value) return;
+    if (replyingToMessage.value) {
+        replyingToMessage.value = null;
+        return;
+    }
     router.push('/');
 });
 
@@ -441,6 +546,8 @@ function handleDrop(e: DragEvent): void {
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :data-message-id="row.id"
                             :message="row.text" :time="row.time" :is-sent="row.isSent" :attachments="row.attachments"
+                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
+                            :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
                             :is-menu-open="activeMenuMessage?.key === row.key"
                             @open-menu="handleOpenMessageMenu(row, $event)" />
                     </section>
@@ -448,7 +555,30 @@ function handleDrop(e: DragEvent): void {
             </div>
         </Transition>
 
+        <div v-if="replyingToMessage"
+            class="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
+            <div class="flex items-center gap-3 min-w-0">
+                <ReplyIcon class="size-5 text-blue-600 dark:text-blue-400 shrink-0" />
+                <div class="flex flex-col min-w-0 pl-2 border-l-2 border-blue-500">
+                    <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 truncate">
+                        Replying to {{ replyPreviewAuthor }}
+                    </span>
+                    <span class="text-sm text-gray-700 dark:text-gray-200 truncate">
+                        {{ replyPreviewText }}
+                    </span>
+                </div>
+            </div>
+            <button type="button" aria-label="Cancel reply"
+                class="grid rounded-full size-7 place-items-center hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
+                @click="replyingToMessage = null">
+                <CloseIcon class="size-4 text-gray-500" />
+            </button>
+        </div>
+
         <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
+
+        <!-- Forward Modal -->
+        <ForwardModal ref="forwardModalRef" @forward="handleForwardMessage" />
 
         <!-- Shared Modern Context Menu -->
         <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="handleCloseMenu">
