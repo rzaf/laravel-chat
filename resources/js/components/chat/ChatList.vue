@@ -1,22 +1,57 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import useChatStore from '@/stores/chat';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
+import ContextMenu from '@/components/common/ContextMenu.vue';
 import MenuIcon from '@/assets/svgs/Menu.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
 import ArchiveBoxIcon from '@/assets/svgs/ArchiveBox.svg';
+import MuteXIcon from '@/assets/svgs/MuteX.svg';
+import MuteOffIcon from '@/assets/svgs/MuteOff.svg';
+import PinIcon from '@/assets/svgs/Pin.svg';
+import PinOffIcon from '@/assets/svgs/PinOff.svg';
+import ArchiveBoxMenuIcon from '@/assets/svgs/ArchiveBox.svg';
+import ArchiveRestoreIcon from '@/assets/svgs/ArchiveRestore.svg';
+import TrashIcon from '@/assets/svgs/Trash.svg';
+import RefreshCwIcon from '@/assets/svgs/RefreshCw.svg';
+import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
 import type { Chat, MuteDuration } from '@/types';
-import { toggleChatPin, setChatMute, toggleChatArchive, clearChatHistory, deleteChat, markMessageAsRead, markChatAsRead } from '@/api/index';
+import { toggleChatPin, setChatMute, toggleChatArchive, clearChatHistory, deleteChat, markChatAsRead } from '@/api/index';
 import { useConfirm } from '@/composables/useConfirm';
+import { useContextMenu } from '@/composables/useContextMenu';
 import router from '@/router';
 
 const emit = defineEmits<{ (e: 'toggleMenu'): void }>();
 const chatStore = useChatStore();
 const chats = computed<Chat[]>(() => chatStore.chatList ?? []);
 
+/* ---------- shared context menu state ---------- */
+const { isOpen, x, y, open, close } = useContextMenu();
+const activeMenuChat = ref<Chat | null>(null);
+const submenuOpenLeft = ref(false);
+
+async function handleOpenMenu(chat: Chat, event: MouseEvent) {
+    activeMenuChat.value = chat;
+    open(event);
+
+    await nextTick();
+    const windowWidth = window.innerWidth;
+    const submenuEstimatedWidth = 200;
+    const menuEstimatedWidth = 180;
+
+    if (event.clientX + menuEstimatedWidth + submenuEstimatedWidth > windowWidth - 16) {
+        submenuOpenLeft.value = true;
+    } else {
+        submenuOpenLeft.value = false;
+    }
+}
+
+function handleCloseMenu() {
+    close();
+    activeMenuChat.value = null;
+}
+
 /* ---------- filters ---------- */
-// Later: append user folders here, e.g.
-// { id: `folder:${f.id}`, label: f.name, match: (c) => f.chat_ids.includes(c.id) }
 const filters = computed(() => [
     { id: 'all', label: 'All', match: (_c: Chat) => true },
     { id: 'unread', label: 'Unread', match: (c: Chat) => (c.unseen_messages_count ?? 0) > 0 },
@@ -77,7 +112,6 @@ function openArchive() {
     query.value = '';
 }
 
-// last archived chat was unarchived -> leave the empty archive view
 watch(
     () => archived.value.length,
     (n) => {
@@ -87,7 +121,6 @@ watch(
 
 /* ---------- visible list ---------- */
 const visibleChats = computed(() => {
-    // archive view: archived only; inbox: non-archived, but searching also reaches the archive
     const pool = inArchive.value ? archived.value : q.value ? chats.value : chats.value.filter((c) => !c.archived);
 
     return pool
@@ -122,7 +155,6 @@ async function toggle(chat: Chat, key: Key) {
 
 async function handleMute(chat: Chat, duration: MuteDuration) {
     if (!chat.id) return;
-    
     try {
         const res = await setChatMute(chat.id, duration);
         chat.muted = res.muted;
@@ -135,18 +167,15 @@ async function handleMute(chat: Chat, duration: MuteDuration) {
 
 async function handleMarkAsRead(chat: Chat) {
     if (!chat.id) return;
-    
     try {
         await markChatAsRead(chat.id);
-        // handle state/store refresh if needed
         chatStore.seenAll(chat.id);
     } catch (error) {
-        console.error('Failed to clear history', error);
+        console.error('Failed to mark as read', error);
     }
 }
 
 const { confirm } = useConfirm();
-
 
 async function handleClearHistory(chat: Chat) {
     const res = await confirm({
@@ -154,7 +183,7 @@ async function handleClearHistory(chat: Chat) {
         message: `Are you sure you want to clear the history for ${chat.name}?`,
         confirmText: 'Clear',
         variant: 'warning',
-        checkboxLabel: chat.type === 'direct' ? undefined : 'Delete messages for everyone', // or based on backend rules
+        checkboxLabel: chat.type === 'direct' ? undefined : 'Delete messages for everyone',
     });
 
     const confirmed = typeof res === 'boolean' ? res : res.confirmed;
@@ -164,7 +193,6 @@ async function handleClearHistory(chat: Chat) {
 
     try {
         await clearChatHistory(chat.id, deleteForEveryone);
-        // handle state/store refresh if needed
     } catch (error) {
         console.error('Failed to clear history', error);
     }
@@ -187,7 +215,7 @@ async function handleDelete(chat: Chat) {
     try {
         const chatId = chat.id;
         await deleteChat(chatId, deleteForEveryone);
-        chatStore.removeChat(chatId); // Assuming you have a remove method in store
+        chatStore.removeChat(chatId);
         if (chatStore.currentChat?.id == chatId) {
             router.push('/');
         }
@@ -196,6 +224,28 @@ async function handleDelete(chat: Chat) {
     }
 }
 
+const muteOptions: { label: string; value: MuteDuration }[] = [
+    { label: 'For 15 minutes', value: '15m' },
+    { label: 'For 1 hour', value: '1h' },
+    { label: 'For 8 hours', value: '8h' },
+    { label: 'For 24 hours', value: '24h' },
+    { label: 'For 1 week', value: '1w' },
+    { label: 'Until I turn it back on', value: 'forever' },
+];
+
+function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' | 'delete', duration?: MuteDuration) {
+    const target = activeMenuChat.value;
+    if (!target) return;
+
+    if (action === 'mute') handleMute(target, duration!);
+    else if (action === 'pin') toggle(target, 'pinned');
+    else if (action === 'archive') toggle(target, 'archived');
+    else if (action === 'markAsRead') handleMarkAsRead(target);
+    else if (action === 'clearHistory') handleClearHistory(target);
+    else handleDelete(target);
+
+    handleCloseMenu();
+}
 </script>
 
 <template>
@@ -238,13 +288,13 @@ async function handleDelete(chat: Chat) {
             <h2 class="font-semibold text-gray-900 dark:text-gray-100">Archived</h2>
         </div>
 
-        <!-- Filter chips (scroll sideways if folders are added later) -->
+        <!-- Filter chips -->
         <div v-else class="flex gap-2 px-3 pb-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             role="group" aria-label="Filter chats">
             <button v-for="f in filters" :key="f.id" type="button" :aria-pressed="activeFilter.id === f.id"
                 class="px-3 py-1 text-sm transition-colors rounded-full shrink-0 whitespace-nowrap" :class="activeFilter.id === f.id
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
                     " @click="filterId = f.id">
                 {{ f.label }}
             </button>
@@ -298,10 +348,97 @@ async function handleDelete(chat: Chat) {
 
             <template v-else>
                 <ChatListItem v-for="chat in visibleChats" :key="chat.id ?? chat.slug ?? ''" :chat="chat"
-                    :current-chat="chatStore.currentChat" @pin="toggle($event, 'pinned')"
-                    @mute="handleMute" @archive="toggle($event, 'archived')" @markAsRead="handleMarkAsRead" @clearHistory="handleClearHistory"
-                    @delete="handleDelete" />
+                    :current-chat="chatStore.currentChat" :is-menu-open="activeMenuChat?.slug === chat.slug"
+                    @contextmenu="handleOpenMenu(chat, $event)" />
             </template>
         </div>
+
+        <!-- Shared Global Context Menu -->
+        <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="handleCloseMenu">
+            <ul v-if="activeMenuChat" class="py-1 text-sm min-w-44">
+                <li>
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('pin')">
+                        <component :is="activeMenuChat.pinned ? PinOffIcon : PinIcon"
+                            class="size-4 opacity-70 shrink-0" />
+                        <span>{{ activeMenuChat.pinned ? 'Unpin' : 'Pin to top' }}</span>
+                    </button>
+                </li>
+
+                <li v-if="activeMenuChat.muted">
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('mute', undefined)">
+                        <MuteOffIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Unmute</span>
+                    </button>
+                </li>
+
+                <li v-else class="relative group">
+                    <button type="button"
+                        class="flex items-center justify-between w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600">
+                        <div class="flex items-center gap-2.5">
+                            <MuteXIcon class="size-4 opacity-70 shrink-0" />
+                            <span>Mute</span>
+                        </div>
+                        <svg class="size-3.5 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+
+                    <div class="hidden group-hover:block group-focus-within:block absolute top-0"
+                        :class="submenuOpenLeft ? 'right-full pr-1' : 'left-full pl-1'">
+                        <div
+                            class="py-1 w-48 bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-lg shadow-lg">
+                            <ul>
+                                <li v-for="option in muteOptions" :key="option.value">
+                                    <button type="button"
+                                        class="w-full px-3 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        @click="act('mute', option.value)">
+                                        {{ option.label }}
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </li>
+
+                <li>
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('archive')">
+                        <component :is="activeMenuChat.archived ? ArchiveRestoreIcon : ArchiveBoxMenuIcon"
+                            class="size-4 opacity-70 shrink-0" />
+                        <span>{{ activeMenuChat.archived ? 'Unarchive' : 'Archive' }}</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('markAsRead')">
+                        <CircleCheckIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Mark as read</span>
+                    </button>
+                </li>
+                <li>
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
+                        @click="act('clearHistory')">
+                        <RefreshCwIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Clear History</span>
+                    </button>
+                </li>
+                <li class="mt-1 border-t border-gray-100 dark:border-gray-600">
+                    <button type="button"
+                        class="flex items-center w-full gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-gray-600"
+                        @click="act('delete')">
+                        <TrashIcon class="size-4 opacity-70 shrink-0" />
+                        <span>Delete</span>
+                    </button>
+                </li>
+            </ul>
+        </ContextMenu>
     </aside>
 </template>
