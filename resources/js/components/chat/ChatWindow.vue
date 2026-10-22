@@ -256,10 +256,42 @@ onKeyStroke('Escape', () => {
     router.push('/');
 });
 
+// Add near your other refs (e.g., below const sending = ref(false);)
+const isDraggingOver = ref(false);
+
+function handleDragOver(e: DragEvent): void {
+    e.preventDefault();
+    isDraggingOver.value = true;
+}
+
+function handleDragLeave(e: DragEvent): void {
+    e.preventDefault();
+    const currentTarget = e.currentTarget as HTMLElement;
+    if (e.relatedTarget && currentTarget.contains(e.relatedTarget as Node)) return;
+    isDraggingOver.value = false;
+}
+
+function handleDrop(e: DragEvent): void {
+    e.preventDefault();
+    isDraggingOver.value = false;
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        attachments.value.push(...Array.from(e.dataTransfer.files));
+    }
+}
+
 </script>
 
 <template>
-    <div class="relative flex flex-col h-full min-h-0">
+    <div class="relative flex flex-col h-full min-h-0" @dragover="handleDragOver" @dragleave="handleDragLeave"
+        @drop="handleDrop">
+        <!-- Drag & Drop Overlay Cue -->
+        <div v-if="isDraggingOver"
+            class="absolute inset-0 z-51 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px] border-2 border-dashed border-blue-500 pointer-events-none rounded-lg m-2">
+            <div
+                class="px-6 py-3 bg-white/90 dark:bg-gray-800/90 text-blue-600 dark:text-blue-400 font-medium rounded-xl shadow-lg flex items-center gap-2">
+                <span>Drop files here to attach</span>
+            </div>
+        </div>
         <!-- Header -->
         <header id="top-profile"
             class="z-10 flex items-center h-16 gap-1 px-3 bg-white border-b border-gray-100 dark:bg-gray-800 dark:border-gray-700">
@@ -302,38 +334,39 @@ onKeyStroke('Escape', () => {
             </button>
         </Transition>
 
-        <Transition
-    name="chat-section"
-    mode="out-in"
->
-    <div :key="chat.slug" class="flex flex-col flex-1 min-h-0">
+        <Transition name="chat-section" mode="out-in">
+            <div :key="chat.slug" class="flex flex-col flex-1 min-h-0">
 
 
-        <!-- Loading: waiting on the first page of messages -->
-        <div v-if="userExists === null && !hasMessages" class="flex items-center justify-center flex-1">
-            <div class="flex items-center justify-center space-x-2" role="status" aria-label="Loading messages">
-                <span style="animation-delay: -300ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
-                <span style="animation-delay: -200ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
-                <span style="animation-delay: -100ms" class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
-            </div>
-        </div>
+                <!-- Loading: waiting on the first page of messages -->
+                <div v-if="userExists === null && !hasMessages" class="flex items-center justify-center flex-1">
+                    <div class="flex items-center justify-center space-x-2" role="status" aria-label="Loading messages">
+                        <span style="animation-delay: -300ms"
+                            class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
+                        <span style="animation-delay: -200ms"
+                            class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
+                        <span style="animation-delay: -100ms"
+                            class="bg-gray-400 rounded-full size-2.5 animate-bounce"></span>
+                    </div>
+                </div>
 
-        <!-- Empty conversation or unknown user -->
-        <div v-else-if="isChatEmpty === true || userExists === false"
-            class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
-            <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
-            <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
-                {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug} yet` }}
-            </h2>
-            <p v-if="userExists !== false" class="text-sm text-gray-500 dark:text-gray-400">
-                Say hello to start the conversation.
-            </p>
-        </div>
+                <!-- Empty conversation or unknown user -->
+                <div v-else-if="isChatEmpty === true || userExists === false"
+                    class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
+                    <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
+                    <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
+                        {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug}
+                        yet` }}
+                    </h2>
+                    <p v-if="userExists !== false" class="text-sm text-gray-500 dark:text-gray-400">
+                        Say hello to start the conversation.
+                    </p>
+                </div>
 
-        <!-- Message timeline -->
-        <div v-else ref="listRef" role="log" aria-live="polite"
-            class="flex-1 w-full min-h-0 px-1 pt-3 pb-2 overflow-y-auto scrollable" @scroll="handleScroll">
-            <!-- <template v-for="row in rows" :key="row.key">
+                <!-- Message timeline -->
+                <div v-else ref="listRef" role="log" aria-live="polite"
+                    class="flex-1 w-full min-h-0 px-1 pt-3 pb-2 overflow-y-auto scrollable" @scroll="handleScroll">
+                    <!-- <template v-for="row in rows" :key="row.key">
                 <div v-if="row.kind === 'date'" class="sticky z-10 flex justify-center py-1.5 top-1">
                     <span
                         class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200">
@@ -343,36 +376,28 @@ onKeyStroke('Escape', () => {
                 <MessageBubble v-else :message="row.text" :time="row.time" :is-sent="row.isSent"
                     :attachments="row.attachments" />
             </template> -->
-            <section v-for="group in groups" :key="group.key">
-                <div v-if="group.label" class="sticky z-40 flex justify-center py-1.5 top-1">
-                    <span
-                        dir="rtl"
-                        class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200"
-                    >
-                        {{ group.label }}
-                    </span>
+                    <section v-for="group in groups" :key="group.key">
+                        <div v-if="group.label" class="sticky z-40 flex justify-center py-1.5 top-1">
+                            <span dir="rtl"
+                                class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200">
+                                {{ group.label }}
+                            </span>
+                        </div>
+                        <MessageBubble v-for="row in group.messages" :key="row.key" :data-message-id="row.id"
+                            :message="row.text" :time="row.time" :is-sent="row.isSent" :attachments="row.attachments" />
+                    </section>
                 </div>
-                <MessageBubble
-                    v-for="row in group.messages"
-                    :key="row.key"
-                    :data-message-id="row.id"
-                    :message="row.text"
-                    :time="row.time"
-                    :is-sent="row.isSent"
-                    :attachments="row.attachments"
-                />
-            </section>
-        </div>
-    </div>
-</Transition>
+            </div>
+        </Transition>
 
         <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
     </div>
 </template>
 <style scoped>
-.chat-section-enter-active{
+.chat-section-enter-active {
     transition: opacity 200ms ease-in;
 }
+
 .chat-section-leave-active {
     transition: opacity 350ms ease;
 }
@@ -383,6 +408,7 @@ onKeyStroke('Escape', () => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .chat-section-enter-active,
     .chat-section-leave-active {
         transition: none;
