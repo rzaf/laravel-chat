@@ -15,6 +15,7 @@ class RandomDelayMiddleware
      */
     public function handle(Request $request, Closure $next): Response
     {
+        // usleep(rand(10500, 30500) * 1000);
         // usleep(rand(1500, 3500) * 1000);
         // usleep(rand(500, 900) * 1000);
         return $next($request);

@@ -6,7 +6,7 @@ import useChatStore from '@/stores/chat';
 import { useMessages } from '@/composables/useMessages';
 import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useReadReceipts } from '@/composables/useReadReceipts';
-import { isDateSeparator, messageSenderId } from '@/types';
+import { isDateSeparator } from '@/types';
 import type { Attachment, Chat, Message } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
@@ -165,7 +165,7 @@ const rows = computed<Row[]>(() =>
                 key: item.id ?? `m-${index}`,
                 text: item.content,
                 time: item.created_at,
-                isSent: messageSenderId(item) === selfId.value,
+                isSent: item.sender_id === selfId.value,
                 attachments: item.attachments,
             },
     ),
@@ -179,7 +179,7 @@ const messagesById = computed(() => new Map(messages.value.map((m) => [String(m.
 const replyPreviewAuthor = computed(() => {
     const m = replyingToMessage.value;
     if (!m) return '';
-    return messageSenderId(m) === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
+    return m.sender_id === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
 });
 const replyPreviewText = computed(() => {
     const m = replyingToMessage.value;
@@ -190,7 +190,7 @@ const replyPreviewText = computed(() => {
 
 const ts = (m: Message) => new Date(m.created_at).getTime();
 const lastReadMs = () => (props.chat.last_read_at ? new Date(props.chat.last_read_at).getTime() : 0);
-const isIncoming = (m: Message) => messageSenderId(m) !== selfId.value;
+const isIncoming = (m: Message) => m.sender_id !== selfId.value;
 /** Unseen = from the other user and newer than the chat's last_read_at. */
 const isUnseen = (m: Message) => isIncoming(m) && ts(m) > lastReadMs();
 
@@ -283,9 +283,13 @@ async function goToBottom(): Promise<void> {
 watch(
     () => chatStore.lastIncoming,
     (incoming) => {
+        console.log('watch chatStore.lastIncoming', incoming, incoming?.chat_id, props.chat.id);
+        
         if (!incoming || incoming.chat_id !== props.chat.id) {
             return;
         }
+        console.log('incoming message: ', incoming);
+        
         const wasNearBottom = isNearBottom(120);
         append(incoming);
         if (wasNearBottom) {
@@ -381,7 +385,7 @@ async function handleForwardMessage(targetChats: Chat[], msgToForward: Message):
     // Single, successful target elsewhere → open it. Multiple targets → stay put.
     const delivered = targets.filter((_, i) => results[i].status === 'fulfilled');
     if (targets.length === 1 && delivered.length === 1 && delivered[0].slug !== props.chat.slug) {
-        router.push(`/user/${delivered[0].slug}`);
+        router.push(`/users/${delivered[0].slug}`);
     }
 }
 
@@ -389,11 +393,11 @@ async function handleForwardMessage(targetChats: Chat[], msgToForward: Message):
 
 const messageOf = (row: { id?: string }) => (row.id != null ? messagesById.value.get(String(row.id)) : undefined);
 
-function replyAuthorOf(row: { id?: string }): string | undefined {
+function replyAuthorOf(row: { id?: string }): string | null {
     const reply = messageOf(row)?.reply_to;
-    if (!reply) return undefined;
+    if (!reply) return null;
     const full = messagesById.value.get(String(reply.id)) ?? reply;
-    return messageSenderId(full) === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
+    return full.sender_id === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
 }
 
 /** Scroll to a replied-to message (if it's loaded) and flash it briefly. */

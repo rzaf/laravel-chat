@@ -79,10 +79,7 @@ export interface Message {
     id?: number;
     chat_id?: number;
     content: string;
-    /** Canonical sender id from the DB. */
     sender_id?: number;
-    /** Alias the API sets on freshly-created / broadcast messages. */
-    from?: number;
     created_at: string;
     updated_at?: string;
     chat?: Chat | null; // chat relation of Message
@@ -93,20 +90,20 @@ export interface Message {
     forwarded_from?: Chat;
 }
 
-/** Payload of the `NewPrivateMessage` broadcast event. */
-export interface IncomingMessage {
-    id: number;
-    chat_id: number;
-    content: string;
-    from: number;
-    created_at: string;
-    updated_at: string;
-    attachments?: Attachment[];
-    reply_to_id?: number;
-    reply_to?: Message;
-    forwarded_from_message_id?: number;
-    forwarded_from?: Chat;
-}
+// /** Payload of the `NewPrivateMessage` broadcast event. */
+// export interface IncomingMessage {
+//     id: number;
+//     chat_id: number;
+//     content: string;
+//     from: number;
+//     created_at: string;
+//     updated_at: string;
+//     attachments?: Attachment[];
+//     reply_to_id?: number;
+//     reply_to?: Message;
+//     forwarded_from_message_id?: number;
+//     forwarded_from?: Chat;
+// }
 
 /** A day divider injected between messages in the timeline. */
 export interface DateSeparator {
@@ -118,11 +115,6 @@ export type ChatTimelineItem = Message | DateSeparator;
 
 export function isDateSeparator(item: ChatTimelineItem): item is DateSeparator {
     return (item as DateSeparator).type === 'date';
-}
-
-/** Resolve the sender id regardless of which alias the API used. */
-export function messageSenderId(message: Message): number | undefined {
-    return message.from ?? message.sender_id;
 }
 
 export interface Contact {

@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Http\Resources\MessageResource;
 use App\Models\Message;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
@@ -31,14 +32,6 @@ class NewPrivateMessage implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
-        return [
-            'id' => $this->message->id,
-            'chat_id' => $this->message->chat_id,
-            'content' => $this->message->content,
-            'from' => $this->message->sender_id,
-            'created_at' => $this->message->created_at,
-            'updated_at' => $this->message->updated_at,
-            'read_at' => $this->message->read_at,
-        ];
+        return (new MessageResource($this->message))->resolve();
     }
 }

@@ -16,7 +16,7 @@ const props = defineProps<{
     /** The message this one replies to. */
     replyTo?: Message | null;
     /** Display name of the replied-to message's author ("You" or the contact's name). */
-    replyAuthor?: string;
+    replyAuthor: string | null;
     /** The chat (direct, group or channel) this message was forwarded from. */
     forwardedFrom?: Chat | null;
 }>();

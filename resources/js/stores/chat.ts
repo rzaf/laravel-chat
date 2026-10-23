@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { getChatList } from '@/api';
-import type { Chat, IncomingMessage } from '@/types';
+import type { Chat, Message } from '@/types';
 
 function timestamp(value: string | null | undefined): number {
     return value ? new Date(value).getTime() : 0;
@@ -13,7 +13,7 @@ export default defineStore('chat', () => {
     const chatListLoadPromise = ref<Promise<void> | null>(null);
     const currentChat = ref<Chat | null>(null);
     /** Signals the open chat window to append a just-received message. */
-    const lastIncoming = ref<IncomingMessage | null>(null);
+    const lastIncoming = ref<Message | null>(null);
 
     const isLoading = computed(() => chatList.value === null);
 
@@ -122,7 +122,7 @@ export default defineStore('chat', () => {
     }
 
     /** Apply a realtime message to the list, then signal the open window. */
-    function receiveMessage(message: IncomingMessage): void {
+    function receiveMessage(message: Message): void {
         const chat = findChat(message.chat_id);
         if (message.attachments == null) {
             message.attachments = [];

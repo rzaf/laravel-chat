@@ -30,6 +30,7 @@ class MessageResource extends JsonResource
                 return new ChatResource($chat);
             }),
             
+            'chat_id' => $this->chat_id,
             'chat' => new ChatResource(
                 $this->whenLoaded('chat')
             ),
