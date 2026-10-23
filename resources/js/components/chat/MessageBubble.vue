@@ -10,6 +10,7 @@ const props = defineProps<{
     id?: number;
     message: string;
     time: string;
+    updatedAt?: string;
     isSent?: boolean;
     attachments?: Attachment[];
     isMenuOpen?: boolean;
@@ -44,6 +45,13 @@ type ForwardSource = Chat & { type?: 'direct' | 'group' | 'channel' | string };
 const forwardSource = computed(() => props.forwardedFrom as ForwardSource | null | undefined);
 const forwardName = computed(() => forwardSource.value?.name ?? forwardSource.value?.slug ?? 'Unknown');
 const forwardKind = computed(() => forwardSource.value?.type);
+
+/* -------------------------------------------------------------- edit check */
+
+const isEdited = computed(() => {
+    if (!props.updatedAt || !props.time) return false;
+    return new Date(props.updatedAt).getTime() > new Date(props.time).getTime() + 1000;
+});
 </script>
 
 <template>
@@ -117,9 +125,10 @@ const forwardKind = computed(() => forwardSource.value?.type);
 
             <div class="flex flex-col p-2.5">
                 <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-                <p class="self-end ml-2 mt-1 text-xs leading-none opacity-80">
-                    {{ useDateFormat(time, 'HH:mm A') }}
-                </p>
+                <div class="flex items-center gap-1.5 self-end ml-2 mt-1 text-xs leading-none opacity-80">
+                    <span v-if="isEdited" class="italic text-[10px] opacity-75">edited</span>
+                    <span>{{ useDateFormat(time, 'HH:mm A') }}</span>
+                </div>
             </div>
         </div>
     </div>

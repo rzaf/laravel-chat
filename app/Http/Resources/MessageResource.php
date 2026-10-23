@@ -14,6 +14,7 @@ class MessageResource extends JsonResource
             'content' => $this->content,
             'sender_id' => $this->sender_id,
             'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
             'reply_to_id' => $this->reply_to_id,
             'reply_to' => new MessageResource($this->whenLoaded('replyTo')),
             'forwarded_from_message_id' => $this->forwarded_from_message_id,

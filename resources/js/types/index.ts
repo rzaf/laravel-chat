@@ -90,21 +90,6 @@ export interface Message {
     forwarded_from?: Chat;
 }
 
-// /** Payload of the `NewPrivateMessage` broadcast event. */
-// export interface IncomingMessage {
-//     id: number;
-//     chat_id: number;
-//     content: string;
-//     from: number;
-//     created_at: string;
-//     updated_at: string;
-//     attachments?: Attachment[];
-//     reply_to_id?: number;
-//     reply_to?: Message;
-//     forwarded_from_message_id?: number;
-//     forwarded_from?: Chat;
-// }
-
 /** A day divider injected between messages in the timeline. */
 export interface DateSeparator {
     type: 'date';

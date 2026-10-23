@@ -245,11 +245,14 @@ class MessageController extends Controller
             'content' => 'required|string|max:1024',
         ]);
 
-        $ok = Message::where('id', $id)
-            ->where('sender_id', $req->user()->id)
-            ->update(['content' => $validated['content']]);
+        $messageModel = Message::where('id', $id)
+            ->where('sender_id', $req->user()->id)->first();
+        abort_if(!$messageModel, 404, 'message not found');
+        
+        abort_if($messageModel->forwarded_from_message_id != null, 404, 'forwarded messages cant be updated');
 
-        abort_if(!$ok, 404, 'message not found');
+        $ok = $messageModel->update(['content' => $validated['content']]);
+        abort_if(!$ok, 400, 'failed to update');
 
         return response()->json([
             'message' => 'message updated',

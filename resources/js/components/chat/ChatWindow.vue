@@ -17,12 +17,13 @@ import ForwardIcon from '@/assets/svgs/Forward.svg';
 import ReplyIcon from '@/assets/svgs/Reply.svg';
 import CloseIcon from '@/assets/svgs/Close.svg';
 import CopyIcon from '@/assets/svgs/Copy.svg';
+import EditIcon from '@/assets/svgs/Edit.svg';
 import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
 import Avatar from './Avatar.vue';
 import { onKeyStroke } from '@vueuse/core';
 import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { deleteMessage, forwardMessage, markChatAsRead } from '@/api/index.ts';
+import { deleteMessage, forwardMessage, markChatAsRead, updateMessage } from '@/api/index.ts';
 import { useContextMenu } from '@/composables/useContextMenu';
 import { useConfirm } from '@/composables/useConfirm.ts';
 import ForwardModal from '@/components/modals/ForwardModal.vue';
@@ -58,10 +59,11 @@ function handleCloseMenu() {
 }
 
 const replyingToMessage = ref<Message | null>(null);
+const editingMessage = ref<Message | null>(null);
 const forwardModalRef = useTemplateRef<InstanceType<typeof ForwardModal>>('forwardModalRef');
 
 const { confirm } = useConfirm();
-async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' | 'delete') {
+async function handleMenuAction(action: 'reply' | 'edit' | 'forward' | 'copy' | 'select' | 'delete') {
     const msg = activeMenuMessage.value;
     if (!msg) return;
 
@@ -72,6 +74,14 @@ async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' 
         case 'reply':
             if (fullMessage) {
                 replyingToMessage.value = fullMessage;
+                editingMessage.value = null; // Can't edit and reply simultaneously
+            }
+            break;
+        case 'edit':
+            if (fullMessage && msg.isSent) {
+                editingMessage.value = fullMessage;
+                draft.value = fullMessage.content;
+                replyingToMessage.value = null; // Can't reply and edit simultaneously
             }
             break;
         case 'forward':
@@ -88,10 +98,8 @@ async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' 
             break;
         case 'select':
             console.log('select message:', msg);
-            // TODO: Complete select logic
             break;
         case 'delete':
-            console.log('Delete message:', msg);
             const res = await confirm({
                 title: 'Delete Message',
                 message: `Are you sure to delete the message ?`,
@@ -106,14 +114,17 @@ async function handleMenuAction(action: 'reply' | 'forward' | 'copy' | 'select' 
             if (!confirmed || !msg.id) return;
 
             try {
-                await deleteMessage(msg.id, deleteForEveryone);
+                await deleteMessage(Number(msg.id), deleteForEveryone);
                 removeMessage(msg.id);
-                // Can't reply to a message that no longer exists.
                 if (replyingToMessage.value && String(replyingToMessage.value.id) === String(msg.id)) {
                     replyingToMessage.value = null;
                 }
+                if (editingMessage.value && String(editingMessage.value.id) === String(msg.id)) {
+                    editingMessage.value = null;
+                    draft.value = '';
+                }
             } catch (error) {
-                console.error('Failed to clear history', error);
+                console.error('Failed to delete message', error);
             }
             break;
     }
@@ -151,6 +162,8 @@ type Row =
         key: string | number;
         text: string;
         time: string;
+        updatedAt?: string;
+        forwardedFrom?: string;
         isSent: boolean;
         attachments?: Attachment[];
     };
@@ -161,10 +174,12 @@ const rows = computed<Row[]>(() =>
             ? { kind: 'date', key: `date-${index}`, label: item.label }
             : {
                 kind: 'message',
-                id: item.id,
+                id: String(item.id),
                 key: item.id ?? `m-${index}`,
                 text: item.content,
                 time: item.created_at,
+                updatedAt: item.updated_at,
+                forwardedFrom: item.forwarded_from,
                 isSent: item.sender_id === selfId.value,
                 attachments: item.attachments,
             },
@@ -191,10 +206,8 @@ const replyPreviewText = computed(() => {
 const ts = (m: Message) => new Date(m.created_at).getTime();
 const lastReadMs = () => (props.chat.last_read_at ? new Date(props.chat.last_read_at).getTime() : 0);
 const isIncoming = (m: Message) => m.sender_id !== selfId.value;
-/** Unseen = from the other user and newer than the chat's last_read_at. */
 const isUnseen = (m: Message) => isIncoming(m) && ts(m) > lastReadMs();
 
-/** Mark the last visible unseen message as read. */
 function readVisible(): void {
     if (props.chat.id == null) return;
     const id = lastVisibleMessageId();
@@ -245,8 +258,8 @@ async function waitForList(previous: HTMLElement | null): Promise<void> {
 watch(
     () => props.chat.slug,
     (slug) => {
-        // A pending reply refers to a message in the previous chat.
         replyingToMessage.value = null;
+        editingMessage.value = null;
         if (slug) {
             void openChat(slug);
         }
@@ -280,16 +293,13 @@ async function goToBottom(): Promise<void> {
         console.error('Failed to mark chat as read', err);
     }
 }
+
 watch(
     () => chatStore.lastIncoming,
     (incoming) => {
-        console.log('watch chatStore.lastIncoming', incoming, incoming?.chat_id, props.chat.id);
-        
         if (!incoming || incoming.chat_id !== props.chat.id) {
             return;
         }
-        console.log('incoming message: ', incoming);
-        
         const wasNearBottom = isNearBottom(120);
         append(incoming);
         if (wasNearBottom) {
@@ -311,6 +321,22 @@ async function handleSend(): Promise<void> {
     }
     sending.value = true;
     try {
+        if (editingMessage.value) {
+            const msgId = editingMessage.value.id;
+            if (msgId != null) {
+                const res = await updateMessage(String(msgId), content);
+                const target = messages.value.find(m => String(m.id) === String(msgId));
+                if (target) {
+                    target.content = content;
+                    target.updated_at = new Date().toISOString();
+                }
+            }
+            editingMessage.value = null;
+            draft.value = '';
+            sending.value = false;
+            return;
+        }
+
         const replyToId = replyingToMessage.value?.id != null ? Number(replyingToMessage.value.id) : null;
         const message = await send(slug, content, attachments.value, replyToId);
         if (props.chat.id == null) {
@@ -335,14 +361,12 @@ async function handleSend(): Promise<void> {
             chatStore.seenAll(props.chat.id);
         }
     } catch (error) {
-        // Draft, attachments and the reply target are kept so the user can retry.
-        console.error('Failed to send message', error);
+        console.error('Failed to send or update message', error);
     } finally {
         sending.value = false;
     }
 }
 
-/** Guards against double-clicks forwarding the same message to the same chat twice. */
 const forwardsInFlight = new Set<string>();
 
 async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
@@ -353,8 +377,6 @@ async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
     forwardsInFlight.add(key);
     try {
         const isCurrentChat = slug === props.chat.slug;
-        // Forwarding into the open chat must appear in its timeline (send() appends);
-        // forwarding elsewhere must NOT touch the open chat's timeline.
         const sent = isCurrentChat
             ? await send(slug, msg.content ?? '', [], null, Number(msg.id))
             : await forwardMessage(slug, msg);
@@ -382,14 +404,11 @@ async function handleForwardMessage(targetChats: Chat[], msgToForward: Message):
         }
     });
 
-    // Single, successful target elsewhere → open it. Multiple targets → stay put.
     const delivered = targets.filter((_, i) => results[i].status === 'fulfilled');
     if (targets.length === 1 && delivered.length === 1 && delivered[0].slug !== props.chat.slug) {
         router.push(`/users/${delivered[0].slug}`);
     }
 }
-
-/* ---------- reply / forward helpers for bubbles ---------- */
 
 const messageOf = (row: { id?: string }) => (row.id != null ? messagesById.value.get(String(row.id)) : undefined);
 
@@ -400,7 +419,6 @@ function replyAuthorOf(row: { id?: string }): string | null {
     return full.sender_id === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
 }
 
-/** Scroll to a replied-to message (if it's loaded) and flash it briefly. */
 function jumpToMessage(messageId: number | string): void {
     const el = listRef.value?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
     if (!el) return;
@@ -428,6 +446,11 @@ const groups = computed(() => {
 
 onKeyStroke('Escape', () => {
     if (hasOpenOverlay.value) return;
+    if (editingMessage.value) {
+        editingMessage.value = null;
+        draft.value = '';
+        return;
+    }
     if (replyingToMessage.value) {
         replyingToMessage.value = null;
         return;
@@ -530,8 +553,7 @@ function handleDrop(e: DragEvent): void {
                     class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
                     <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
                     <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
-                        {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug}
-                        yet` }}
+                        {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug} yet` }}
                     </h2>
                     <p v-if="userExists !== false" class="text-sm text-gray-500 dark:text-gray-400">
                         Say hello to start the conversation.
@@ -549,7 +571,7 @@ function handleDrop(e: DragEvent): void {
                             </span>
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :data-message-id="row.id"
-                            :message="row.text" :time="row.time" :is-sent="row.isSent" :attachments="row.attachments"
+                            :message="row.text" :time="row.time" :updated-at="row.updatedAt" :is-sent="row.isSent" :attachments="row.attachments"
                             :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
                             :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
                             :is-menu-open="activeMenuMessage?.key === row.key"
@@ -559,6 +581,7 @@ function handleDrop(e: DragEvent): void {
             </div>
         </Transition>
 
+        <!-- Reply Preview Banner -->
         <div v-if="replyingToMessage"
             class="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
             <div class="flex items-center gap-3 min-w-0">
@@ -579,6 +602,27 @@ function handleDrop(e: DragEvent): void {
             </button>
         </div>
 
+        <!-- Edit Preview Banner -->
+        <div v-if="editingMessage"
+            class="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-800/50">
+            <div class="flex items-center gap-3 min-w-0">
+                <EditIcon class="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <div class="flex flex-col min-w-0 pl-2 border-l-2 border-amber-500">
+                    <span class="text-xs font-semibold text-amber-600 dark:text-amber-400 truncate">
+                        Edit message
+                    </span>
+                    <span class="text-sm text-gray-700 dark:text-gray-200 truncate">
+                        {{ editingMessage.content }}
+                    </span>
+                </div>
+            </div>
+            <button type="button" aria-label="Cancel edit"
+                class="grid rounded-full size-7 place-items-center hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
+                @click="editingMessage = null; draft.value = ''">
+                <CloseIcon class="size-4 text-gray-500" />
+            </button>
+        </div>
+
         <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
 
         <!-- Forward Modal -->
@@ -593,6 +637,14 @@ function handleDrop(e: DragEvent): void {
                         @click="handleMenuAction('reply')">
                         <ReplyIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Reply</span>
+                    </button>
+                </li>
+                <li v-if="activeMenuMessage?.isSent && activeMenuMessage?.forwardedFrom==null">
+                    <button type="button"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        @click="handleMenuAction('edit')">
+                        <EditIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
+                        <span>Edit</span>
                     </button>
                 </li>
                 <li>
@@ -648,7 +700,6 @@ function handleDrop(e: DragEvent): void {
 }
 
 @media (prefers-reduced-motion: reduce) {
-
     .chat-section-enter-active,
     .chat-section-leave-active {
         transition: none;

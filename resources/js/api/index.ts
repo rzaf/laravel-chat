@@ -149,6 +149,14 @@ export async function deleteMessage(messageId: string, deleteForEveryone?: boole
     return data;
 }
 
+
+export async function updateMessage(messageId: string, newContent: string): Promise<{ message: string }> {
+    const { data } = await apiClient.put<{ message: string }>(`/api/messages/${messageId}`, {
+        content: newContent
+    });
+    return data;
+}
+
 /* -------------------------------------------------------- contacts / users */
 
 export async function searchUsers(term: string, page = 1, notInContacts: boolean = true): Promise<Paginated<User>> {
