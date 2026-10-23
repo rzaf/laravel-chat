@@ -181,9 +181,10 @@ class MessageController extends Controller
             }
             // Determine content: if it's a forward, fetch content directly from the original message model
             $content = $validated['content'] ?? '';
-            $forwardedFromMessageId = null;
-            if (!empty($validated['forwarded_from_message_id'])) {
-                $sourceMessage = Message::find($validated['forwarded_from_message_id']);
+            $forwardedFromMessageId = $validated['forwarded_from_message_id'] ?? null;
+            $sourceMessage = null;
+            if ($forwardedFromMessageId) {
+                $sourceMessage = Message::with('media')->find($validated['forwarded_from_message_id']);
                 abort_if(!$sourceMessage, 404, 'Source message to forward not found');
                 $content = $sourceMessage->content;
                 // If the source message was *also* a forward, point to its original root message ID,
@@ -198,6 +199,12 @@ class MessageController extends Controller
                 'reply_to_id' => $validated['reply_to_id'] ?? null,
                 'forwarded_from_message_id' => $forwardedFromMessageId,
             ]);
+            // Handle linking attachments from the source message if it's a forward
+            if ($sourceMessage && $sourceMessage->media->isNotEmpty()) {
+                foreach ($sourceMessage->media as $sourceMedia) {
+                    $mediaService->link($sourceMedia, $message);
+                }
+            }
 
             if ($req->hasFile('attachments')) {
                 foreach ($req->file('attachments') as $file) {

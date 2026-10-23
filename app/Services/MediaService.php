@@ -25,7 +25,7 @@ class MediaService
     ): Media {
         $uuidName = Str::uuid();
         $directory = "{$collection}/{$model->id}";
-        
+
         // Store file securely with generated UUID name
         $path = $file->storeAs($directory, $uuidName, $disk);
 
@@ -42,7 +42,7 @@ class MediaService
             $width = $image->width();
             $height = $image->height();
             $metaData = $image->exif();
-            
+
             // creating the blurhash:// Creating the blurhash
             $blurImage = clone $image;
             $maxSize = 32;
@@ -75,9 +75,7 @@ class MediaService
             $thumbPath = $directory . '/' . $uuidName . '_thumb';
             // $encoded->save(Storage::disk($disk)->path('') . $thumbPath);
             Storage::disk($disk)->put($thumbPath, $encoded->toString());
-
         }
-
 
         $checksum = hash_file('sha256', $file->getRealPath());
         return $model->media()->create([
@@ -95,6 +93,25 @@ class MediaService
             'metadata' => $metaData,
             'thumb_path' => $thumbPath,
             'blurhash' => $blurhash,
+        ]);
+    }
+
+    public function link(Media $sourceMedia, Model $targetModel): Media
+    {
+        return $targetModel->media()->create([
+            'disk' => $sourceMedia->disk,
+            'path' => $sourceMedia->path, // Points to the exact same file path on disk
+            'file_name' => $sourceMedia->file_name,
+            'mime_type' => $sourceMedia->mime_type,
+            'collection' => $sourceMedia->collection,
+            'size' => $sourceMedia->size,
+            'uploaded_by' => auth()->id() ?? $sourceMedia->uploaded_by,
+            'width' => $sourceMedia->width,
+            'height' => $sourceMedia->height,
+            'checksum' => $sourceMedia->checksum,
+            'metadata' => $sourceMedia->metadata,
+            'thumb_path' => $sourceMedia->thumb_path, // Points to the same thumbnail path
+            'blurhash' => $sourceMedia->blurhash,
         ]);
     }
 }
