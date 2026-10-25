@@ -7,7 +7,7 @@ import { useMessages } from '@/composables/useMessages';
 import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useReadReceipts } from '@/composables/useReadReceipts';
 import { isDateSeparator } from '@/types';
-import type { Attachment, Chat, Message } from '@/types';
+import type { Attachment, Chat, ChatType, Message } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
@@ -166,6 +166,7 @@ type Row =
         forwardedFrom?: string;
         isSent: boolean;
         attachments?: Attachment[];
+        attachments_count?: number;
     };
 
 const rows = computed<Row[]>(() =>
@@ -182,6 +183,7 @@ const rows = computed<Row[]>(() =>
                 forwardedFrom: item.forwarded_from,
                 isSent: item.sender_id === selfId.value,
                 attachments: item.attachments,
+                attachments_count: item.attachments_count,
             },
     ),
 );
@@ -350,11 +352,16 @@ async function handleSend(): Promise<void> {
             chatStore.selectChatBySlug(slug);
         }
         replyingToMessage.value = null;
+        if (props.chat.id != null) {
+            // chatStore.setLastMessage(props.chat.id, message.content, message.created_at);
+            chatStore.setLastMessage({
+                chat_id: props.chat.id,
+                content: message.content,
+                created_at: message.created_at,
+            });
+        }
         draft.value = '';
         attachments.value = [];
-        if (props.chat.id != null) {
-            chatStore.setLastMessage(props.chat.id, message.content, message.created_at);
-        }
         await nextTick();
         scrollToBottom(true);
         if (props.chat.id != null) {
@@ -382,7 +389,12 @@ async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
             : await forwardMessage(slug, msg);
 
         if (targetChat.id != null) {
-            chatStore.setLastMessage(targetChat.id, sent.content, sent.created_at);
+            // chatStore.setLastMessage(targetChat.id, sent.content, sent.created_at);
+            chatStore.setLastMessage({
+                chat_id: targetChat.id,
+                content: sent.content,
+                created_at: sent.created_at,
+            });
         }
         if (isCurrentChat) {
             await nextTick();
@@ -570,7 +582,7 @@ function handleDrop(e: DragEvent): void {
                                 {{ group.label }}
                             </span>
                         </div>
-                        <MessageBubble v-for="row in group.messages" :key="row.key" :data-message-id="row.id"
+                        <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type" :data-message-id="row.id"
                             :message="row.text" :time="row.time" :updated-at="row.updatedAt" :is-sent="row.isSent" :attachments="row.attachments"
                             :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
                             :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"

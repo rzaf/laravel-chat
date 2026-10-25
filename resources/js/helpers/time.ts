@@ -63,7 +63,7 @@ export function formattedTimestamp(
     //     return 'Yesterday';
     // }
 
-    if (daysAgo > 1 && daysAgo < 7) {
+    if (daysAgo > 0 && daysAgo < 7) {
         return new Intl.DateTimeFormat(activeLocale, { weekday: 'short' }).format(inputDate);
     }
 

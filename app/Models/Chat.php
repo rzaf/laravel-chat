@@ -41,4 +41,11 @@ class Chat extends Model
     {
         return $this->hasMany(ChatUserSetting::class);
     }
+
+    public function profilePhoto()
+    {
+        return $this->morphOne(Media::class, 'model')
+            ->where('collection', 'profiles')
+            ->latestOfMany();
+    }
 }

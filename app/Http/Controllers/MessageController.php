@@ -103,7 +103,16 @@ class MessageController extends Controller
             ->where('chat_id', $chat->id)
             ->first();
         $query = Message::query()
-            ->with(['media', 'replyTo.sender', 'forwardedFromMessage.sender', 'forwardedFromMessage.chat'])
+            ->with([
+                'media',
+                'replyTo.sender',
+                'replyTo' => function ($q) {
+                    $q->withCount('media');
+                },
+                'forwardedFromMessage.sender.profilePhoto',
+                'forwardedFromMessage.chat.profilePhoto'
+            ])
+            // ->withExists('replyTo.media')
             ->where('chat_id', $chat->id)
             // Exclude messages deleted individually by this user ("Delete for Me")
             ->whereNotExists(function ($subQuery) use ($currentUser) {
@@ -223,7 +232,16 @@ class MessageController extends Controller
             // abort(500, $th->getMessage());
         }
 
-        $message->load(['chat', 'media', 'replyTo.sender', 'forwardedFromMessage.sender', 'forwardedFromMessage.chat']);
+        $message->load([
+            'chat',
+            'media',
+            'replyTo.sender',
+            'replyTo' => function ($q) {
+                $q->withCount('media');
+            },
+            'forwardedFromMessage.sender.profilePhoto',
+            'forwardedFromMessage.chat.profilePhoto'
+        ]);
         $message->chat->name = $message->chat->name ?? $user->name;
         $message->chat->slug = $message->chat->slug ?? $user->username;
         $message->chat->direct_user_id = $user->id;
@@ -248,7 +266,7 @@ class MessageController extends Controller
         $messageModel = Message::where('id', $id)
             ->where('sender_id', $req->user()->id)->first();
         abort_if(!$messageModel, 404, 'message not found');
-        
+
         abort_if($messageModel->forwarded_from_message_id != null, 404, 'forwarded messages cant be updated');
 
         $ok = $messageModel->update(['content' => $validated['content']]);
@@ -334,7 +352,7 @@ class MessageController extends Controller
         // SCENARIO A: DELETE FOR EVERYONE
         // ==========================================
         if ($deleteForEveryone) {
-            if ($message->chat->type == 'chat') {
+            if ($message->chat->type == 'group') {
                 // if chat be a group or channel only admins can delete message
                 if ($message->sender_id !== $currentUser->id && $currentUserMemberRow->role == 'normal') {
                     return response()->json(['message' => 'You can only delete your own messages for everyone.'], 403);

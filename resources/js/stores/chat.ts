@@ -63,11 +63,11 @@ export default defineStore('chat', () => {
         }
     }
 
-    function setLastMessage(chatId: number, content: string, createdAt: string): void {
-        const chat = findChat(chatId);
+    function setLastMessage(newMessage: Message): void {
+        const chat = findChat(newMessage.chat_id);
         if (chat) {
-            chat.last_message = content;
-            chat.last_message_created_at = createdAt;
+            chat.last_message = newMessage.content;
+            chat.last_message_created_at = newMessage.created_at;
             reorder();
         }
     }
@@ -126,6 +126,7 @@ export default defineStore('chat', () => {
         const chat = findChat(message.chat_id);
         if (message.attachments == null) {
             message.attachments = [];
+            message.attachments_count = 0;
         }
         if (chat) {
             chat.last_message = message.content;

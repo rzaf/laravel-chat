@@ -2,14 +2,19 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useDateFormat } from '@vueuse/core';
-import type { Attachment, Chat, Message } from '@/types';
+import type { Attachment, Chat, ChatType, Message } from '@/types';
 import MessageAttachments from '@/components/chat/MessageAttachments.vue';
+import PaperClipIcon from '@/assets/svgs/PaperClip.svg';
+import MegaphoneIcon from '@/assets/svgs/Megaphone.svg';
+import UsersIcon from '@/assets/svgs/Users.svg';
+import ForwardIcon from '@/assets/svgs/Forward.svg';
 import Avatar from '@/components/chat/Avatar.vue';
 
 const props = defineProps<{
     id?: number;
     message: string;
     time: string;
+    chatType: ChatType;
     updatedAt?: string;
     isSent?: boolean;
     attachments?: Attachment[];
@@ -30,7 +35,7 @@ const emit = defineEmits<{
 /* ---------------------------------------------------------------- reply */
 
 const replyText = computed(() => props.replyTo?.content?.trim() ?? '');
-const replyHasAttachment = computed(() => (props.replyTo?.attachments?.length ?? 0) > 0);
+const replyHasAttachment = computed(() => (props.replyTo?.attachments_count ?? 0) > 0);
 
 function jumpToReply(): void {
     if (props.replyTo?.id != null) {
@@ -66,32 +71,17 @@ const isEdited = computed(() => {
             <div v-if="forwardedFrom" class="px-3 pt-2.5 text-xs"
                 :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
                 <p class="flex items-center gap-1 italic opacity-80">
-                    <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M15 14l5-5-5-5" />
-                        <path d="M4 20v-7a4 4 0 0 1 4-4h12" />
-                    </svg>
+                    <ForwardIcon class="size-3.5 shrink-0" />
                     Forwarded from
                 </p>
                 <p class="flex items-center gap-1.5 mt-1 font-semibold">
-                    <Avatar class="size-5 shrink-0"
-                        :src="forwardedFrom.profile_photo || '/storage/default-profile.png'" />
                     <!-- group -->
-                    <svg v-if="forwardKind === 'group'" class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        aria-label="Group">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
-                        <circle cx="10" cy="7" r="4" />
-                        <path d="M21 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
+                    <UsersIcon v-if="forwardKind === 'group'" class="size-3.5 shrink-0" />
                     <!-- channel -->
-                    <svg v-else-if="forwardKind === 'channel'" class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                        aria-label="Channel">
-                        <path d="M3 11l18-8v18L3 13z" />
-                        <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-                    </svg>
-                    <span class="truncate">{{ forwardName }}</span>
+                    <MegaphoneIcon v-else-if="forwardKind === 'channel'" class="size-3.5 shrink-0" />
+                    <RouterLink :to="`/users/${forwardSource?.slug ?? 'unknown'}`">
+                        <span class="truncate">{{ forwardName }}</span>
+                    </RouterLink>
                 </p>
                 <div class="mt-2 border-t"
                     :class="isSent ? 'border-white/15' : 'border-black/10 dark:border-white/10'" />
@@ -104,17 +94,13 @@ const isEdited = computed(() => {
                 @click.stop="jumpToReply">
                 <span class="w-1 shrink-0" :class="isSent ? 'bg-blue-200' : 'bg-blue-500 dark:bg-blue-400'" />
                 <span class="flex flex-col min-w-0 px-2 py-1.5 text-xs">
-                    <span class="font-semibold truncate"
+                    <span v-if="chatType != 'direct'" class="font-semibold truncate"
                         :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
                         {{ replyAuthor ?? 'Message' }}
                     </span>
                     <span v-if="replyText" class="break-words line-clamp-2 opacity-90">{{ replyText }}</span>
                     <span v-else-if="replyHasAttachment" class="flex items-center gap-1 italic opacity-90">
-                        <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <path
-                                d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-                        </svg>
+                        <PaperClipIcon class="size-3.5 shrink-0" />
                         Attachment
                     </span>
                     <span v-else class="italic opacity-70">Message unavailable</span>

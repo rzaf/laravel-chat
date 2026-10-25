@@ -19,6 +19,12 @@ class ChatResource extends JsonResource
             'creator' => $this->creator,
             'created_at' => $this->created_at,
             'direct_user_id' => $this->direct_user_id,
+            'profile_photo' => $this->when(
+                $this->relationLoaded('profilePhoto') && $this->profilePhoto != null,
+                // todo: handle private profiles ???
+                route('media.public', ['id' => $this->profilePhoto->id ?? 0, 'thumbnail' => 1,]),
+                ''
+            ),
         ];
     }
 }

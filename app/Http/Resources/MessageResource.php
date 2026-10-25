@@ -21,11 +21,18 @@ class MessageResource extends JsonResource
             'forwarded_from' => $this->whenLoaded('forwardedFromMessage', function () {
                 $chat = $this->forwardedFromMessage->chat;
                 $sender = $this->forwardedFromMessage->sender;
-
+                if (!$chat) {
+                    return null;
+                }
                 if ($chat && $chat->type === 'direct' && $sender) {
                     $chat->name = $chat->name ?? $sender->name;
                     $chat->slug = $chat->slug ?? $sender->username;
                     $chat->direct_user_id = $sender->id;
+
+                    if ($sender->relationLoaded('profilePhoto') && $sender->profilePhoto) {
+                        // Set 'profilePhoto' relation so ChatResource picks it up correctly
+                        $chat->setRelation('profilePhoto', $sender->profilePhoto);
+                    }
                 }
 
                 return new ChatResource($chat);
@@ -37,6 +44,11 @@ class MessageResource extends JsonResource
             ),
             'attachments' => MediaResource::collection(
                 $this->whenLoaded('media')
+            ),
+            // 'attachments_count' => $this->whenCounted('media'),
+            'attachments_count' => $this->when(
+                $this->relationLoaded('media') || array_key_exists('media_count', $this->resource->getAttributes()),
+                fn () => $this->relationLoaded('media') ? $this->media->count() : $this->media_count
             ),
         ];
     }

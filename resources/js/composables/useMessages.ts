@@ -76,6 +76,9 @@ export function useMessages() {
         const message = await sendDirectMessage(slug, content, attachments, replyToId, forwardedFromMessageId);
         // The user may have switched chats while the request was in flight;
         // don't leak the new message into another chat's timeline.
+        if (message.attachments != null) {
+            message.attachments_count = message.attachments.length;
+        }
         if (slug === currentSlug) {
             messages.value.push(message);
             isChatEmpty.value = false;

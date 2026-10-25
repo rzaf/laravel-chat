@@ -80,10 +80,12 @@ export interface Message {
     chat_id?: number;
     content: string;
     sender_id?: number;
+    sender?: User;
     created_at: string;
     updated_at?: string;
     chat?: Chat | null; // chat relation of Message
     attachments?: Attachment[];
+    attachments_count?: number;
     reply_to_id?: number;
     reply_to?: Message;
     forwarded_from_message_id?: number;
