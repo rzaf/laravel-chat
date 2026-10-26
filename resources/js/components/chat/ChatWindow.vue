@@ -576,7 +576,7 @@ function handleDrop(e: DragEvent): void {
                 <div v-else ref="listRef" role="log" aria-live="polite"
                     class="flex-1 w-full min-h-0 px-1 pt-3 pb-2 overflow-y-auto scrollable" @scroll="handleScroll">
                     <section v-for="group in groups" :key="group.key">
-                        <div v-if="group.label" class="sticky z-40 flex justify-center py-1.5 top-1">
+                        <div v-if="group.label" class="sticky z-40 w-fit mx-auto flex justify-center py-1.5 top-1">
                             <span dir="rtl"
                                 class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200">
                                 {{ group.label }}

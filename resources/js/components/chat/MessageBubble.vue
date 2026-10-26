@@ -75,14 +75,18 @@ const isEdited = computed(() => {
                     <ForwardIcon class="size-3.5 shrink-0" />
                     Forwarded from
                 </p>
+                
                 <p class="flex items-center gap-1.5 mt-1 font-semibold">
+                    <Avatar class="size-5 shrink-0"
+                            :src="forwardedFrom.profile_photo || '/storage/default-profile.png'" />
                     <!-- group -->
                     <UsersIcon v-if="forwardKind === 'group'" class="size-3.5 shrink-0" />
                     <!-- channel -->
                     <MegaphoneIcon v-else-if="forwardKind === 'channel'" class="size-3.5 shrink-0" />
-                    <RouterLink :to="`/users/${forwardSource?.slug ?? 'unknown'}`">
+                    <RouterLink v-if="forwardSource?.slug" :to="`/users/${forwardSource?.slug ?? 'unknown'}`">
                         <span class="truncate">{{ forwardName }}</span>
                     </RouterLink>
+                    <span v-else class="truncate">{{ forwardName }}</span>
                 </p>
                 <div class="mt-2 border-t"
                     :class="isSent ? 'border-white/15' : 'border-black/10 dark:border-white/10'" />

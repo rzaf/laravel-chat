@@ -2,11 +2,12 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { getChatList } from '@/api';
 import type { Chat, Message } from '@/types';
+import useAuthStore from '@/stores/auth';
 
 function timestamp(value: string | null | undefined): number {
     return value ? new Date(value).getTime() : 0;
 }
-
+const auth = useAuthStore();
 export default defineStore('chat', () => {
     /** `null` while the initial list is still loading. */
     const chatList = ref<Chat[] | null>(null);
@@ -68,6 +69,7 @@ export default defineStore('chat', () => {
         if (chat) {
             chat.last_message = newMessage.content;
             chat.last_message_created_at = newMessage.created_at;
+            chat.last_message_is_mine = true;
             reorder();
         }
     }
@@ -131,6 +133,7 @@ export default defineStore('chat', () => {
         if (chat) {
             chat.last_message = message.content;
             chat.last_message_created_at = message.created_at;
+            chat.last_message_is_mine = auth.user?.id === message?.sender_id;
             // Always count it; the open window marks it read once it's actually visible.
             chat.unseen_messages_count = (chat.unseen_messages_count ?? 0) + 1;
             reorder();
