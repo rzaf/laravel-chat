@@ -1,6 +1,7 @@
-import { ref } from 'vue';
 import { markMessageAsRead } from '@/api';
 import type { Message } from '@/types';
+
+const READ_DEBOUNCE_MS = 400;
 
 /**
  * Manages debounced and cancelable read receipts as the user scrolls or opens chats.
@@ -38,27 +39,31 @@ export function useReadReceipts(onRead: (chatId: number, message: Message) => vo
         abortController = new AbortController();
         const signal = abortController.signal;
         const messageId = message.id;
-        // const chatId = message.chat_id;
 
-        // 400ms debounce delay during scrolling
         timeoutId = setTimeout(async () => {
             try {
                 await markMessageAsRead(messageId, signal);
-                pendingId = null;
+                // A newer message may have been scheduled meanwhile; don't clobber its marker.
+                if (pendingId === messageId) {
+                    pendingId = null;
+                }
                 onRead(chatId, message);
             } catch (err: any) {
                 if (err.name !== 'CanceledError' && err.code !== 'ERR_CANCELED') {
-                    pendingId = null; // allow retry
+                    if (pendingId === messageId) {
+                        pendingId = null; // allow retry
+                    }
                     console.error('Failed to mark message as read', err);
                 }
             }
-        }, 400);
+        }, READ_DEBOUNCE_MS);
     }
 
     function cancel(): void {
         if (timeoutId) clearTimeout(timeoutId);
         if (abortController) abortController.abort();
         timeoutId = null;
+        abortController = null;
         pendingId = null;
     }
 

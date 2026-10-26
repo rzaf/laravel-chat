@@ -104,6 +104,26 @@ export function isDateSeparator(item: ChatTimelineItem): item is DateSeparator {
     return (item as DateSeparator).type === 'date';
 }
 
+/** A message prepared for rendering in the chat timeline. */
+export interface MessageRow {
+    id?: string;
+    key: string | number;
+    text: string;
+    time: string;
+    updatedAt?: string;
+    forwardedFrom?: Chat;
+    isSent: boolean;
+    attachments?: Attachment[];
+    attachments_count?: number;
+}
+
+/** Messages under one date divider (label is empty for the leading group). */
+export interface MessageGroup {
+    key: string;
+    label: string;
+    messages: MessageRow[];
+}
+
 export interface Contact {
     name?: string | null;
     // user: ContactUser;

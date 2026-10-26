@@ -7,8 +7,8 @@ import useAuthStore from '@/stores/auth';
 function timestamp(value: string | null | undefined): number {
     return value ? new Date(value).getTime() : 0;
 }
-const auth = useAuthStore();
 export default defineStore('chat', () => {
+    const auth = useAuthStore();
     /** `null` while the initial list is still loading. */
     const chatList = ref<Chat[] | null>(null);
     const chatListLoadPromise = ref<Promise<void> | null>(null);
@@ -37,8 +37,11 @@ export default defineStore('chat', () => {
         }
 
         chatListLoadPromise.value = (async () => {
-            chatList.value = await getChatList();
-            chatListLoadPromise.value = null;
+            try {
+                chatList.value = await getChatList();
+            } finally {
+                chatListLoadPromise.value = null;
+            }
         })();
 
         return chatListLoadPromise.value;
@@ -59,8 +62,10 @@ export default defineStore('chat', () => {
 
     function removeChat(chatId: number): void {
         if (chatList.value != null && chatList.value.length > 0) {
-            let id = chatList.value.findIndex((c) => c.id == chatId);
-            chatList.value.splice(id, 1);
+            const index = chatList.value.findIndex((c) => c.id == chatId);
+            if (index !== -1) {
+                chatList.value.splice(index, 1);
+            }
         }
     }
 
@@ -92,7 +97,7 @@ export default defineStore('chat', () => {
             last_message_created_at: now,
             created_at: now,
             unseen_messages_count: 0,
-            type: directUserId==null ? 'direct' : 'group',
+            type: directUserId == null ? 'direct' : 'group',
         });
         reorder();
     }

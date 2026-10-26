@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
+import { onKeyStroke } from '@vueuse/core';
 import useAuthStore from '@/stores/auth';
 import useChatStore from '@/stores/chat';
 import { useMessages } from '@/composables/useMessages';
 import { useMessageScroll } from '@/composables/useMessageScroll';
-import { useReadReceipts } from '@/composables/useReadReceipts';
+import { useChatReadState } from '@/composables/useChatReadState';
+import { useMessageActions } from '@/composables/useMessageActions';
+import { hasOpenOverlay } from '@/composables/useOverlayManager';
+import { forwardMessage } from '@/api/index.ts';
 import { isDateSeparator } from '@/types';
-import type { Attachment, Chat, ChatType, Message } from '@/types';
+import type { Chat, Message, MessageGroup } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
+import ForwardModal from '@/components/modals/ForwardModal.vue';
+import Avatar from './Avatar.vue';
 import BackArrowIcon from '@/assets/svgs/BackArrow.svg';
 import ChevronDownIcon from '@/assets/svgs/ChevronDown.svg';
 import ForwardIcon from '@/assets/svgs/Forward.svg';
@@ -20,184 +26,104 @@ import CopyIcon from '@/assets/svgs/Copy.svg';
 import EditIcon from '@/assets/svgs/Edit.svg';
 import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
-import Avatar from './Avatar.vue';
-import { onKeyStroke } from '@vueuse/core';
-import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { deleteMessage, forwardMessage, markChatAsRead, updateMessage } from '@/api/index.ts';
-import { useContextMenu } from '@/composables/useContextMenu';
-import { useConfirm } from '@/composables/useConfirm.ts';
-import ForwardModal from '@/components/modals/ForwardModal.vue';
+
+/* ------------------------------------------------------------------ setup */
 
 const props = defineProps<{ chat: Chat }>();
-const router = useRouter();
-
 const emit = defineEmits<{
     (e: 'openChatProfile', chat: Chat): void;
 }>();
 
+const router = useRouter();
 const auth = useAuthStore();
 const chatStore = useChatStore();
 const selfId = computed(() => auth.user?.id);
 
+/* ------------------------------------------------------------------ state */
+
 const listRef = useTemplateRef<HTMLElement>('listRef');
+const forwardModalRef = useTemplateRef<InstanceType<typeof ForwardModal>>('forwardModalRef');
+
 const draft = ref('');
 const attachments = ref<File[]>([]);
 const sending = ref(false);
+const isDraggingOver = ref(false);
 
-/* ---------- shared context menu state ---------- */
-const { isOpen, x, y, open, close } = useContextMenu();
-const activeMenuMessage = ref<MessageRow | null>(null);
+/* ------------------------------------------------------------ composables */
 
-function handleOpenMessageMenu(message: MessageRow, event: MouseEvent) {
-    activeMenuMessage.value = message;
-    open(event);
-}
-
-function handleCloseMenu() {
-    close();
-    activeMenuMessage.value = null;
-}
-
-const replyingToMessage = ref<Message | null>(null);
-const editingMessage = ref<Message | null>(null);
-const forwardModalRef = useTemplateRef<InstanceType<typeof ForwardModal>>('forwardModalRef');
-
-const { confirm } = useConfirm();
-async function handleMenuAction(action: 'reply' | 'edit' | 'forward' | 'copy' | 'select' | 'delete') {
-    const msg = activeMenuMessage.value;
-    if (!msg) return;
-
-    // Find the full Message object from messages array if needed
-    const fullMessage = messages.value.find(m => String(m.id) === String(msg.id)) ?? null;
-
-    switch (action) {
-        case 'reply':
-            if (fullMessage) {
-                replyingToMessage.value = fullMessage;
-                editingMessage.value = null; // Can't edit and reply simultaneously
-            }
-            break;
-        case 'edit':
-            if (fullMessage && msg.isSent) {
-                editingMessage.value = fullMessage;
-                draft.value = fullMessage.content;
-                replyingToMessage.value = null; // Can't reply and edit simultaneously
-            }
-            break;
-        case 'forward':
-            if (fullMessage) {
-                forwardModalRef.value?.open(fullMessage);
-            }
-            break;
-        case 'copy':
-            if (msg.text) {
-                navigator.clipboard.writeText(msg.text).catch((err) => {
-                    console.error('Failed to copy text', err);
-                });
-            }
-            break;
-        case 'select':
-            console.log('select message:', msg);
-            break;
-        case 'delete':
-            const res = await confirm({
-                title: 'Delete Message',
-                message: `Are you sure to delete the message ?`,
-                confirmText: 'Delete',
-                variant: 'danger',
-                checkboxLabel: 'Delete for everyone',
-            });
-
-            const confirmed = typeof res === 'boolean' ? res : res.confirmed;
-            const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
-
-            if (!confirmed || !msg.id) return;
-
-            try {
-                await deleteMessage(Number(msg.id), deleteForEveryone);
-                removeMessage(msg.id);
-                if (replyingToMessage.value && String(replyingToMessage.value.id) === String(msg.id)) {
-                    replyingToMessage.value = null;
-                }
-                if (editingMessage.value && String(editingMessage.value.id) === String(msg.id)) {
-                    editingMessage.value = null;
-                    draft.value = '';
-                }
-            } catch (error) {
-                console.error('Failed to delete message', error);
-            }
-            break;
-    }
-    handleCloseMenu();
-}
-
-const { messages, timeline, isChatEmpty, isLastPage, userExists, loadInitial, loadOlder, send, append, removeMessage } = useMessages();
 const {
-    showGoToBottom, scrollToBottom, scrollToMessageBottom, lastVisibleMessageId,
-    isAtTop, isNearBottom, updateGoToBottom, preserveOnPrepend,
+    messages, timeline, hasMessages, messagesById, isChatEmpty, userExists,
+    findMessage, loadInitial, loadOlder, loadOlderUntil, send, append, edit, remove,
+} = useMessages();
+
+const {
+    showGoToBottom, scrollToBottom, scrollToBottomAfterRender, scrollToTop, scrollToMessageBottom,
+    lastVisibleMessageId, isAtTop, isNearBottom, updateGoToBottom, preserveOnPrepend,
+    waitForList, jumpToMessage,
 } = useMessageScroll(listRef);
-const { markRead, cancel: cancelRead } = useReadReceipts((chatId, message) => {
-    const readMs = Math.max(lastReadMs(), ts(message));
-    chatStore.setReadState(
-        chatId,
-        message.created_at,
-        messages.value.filter((m) => isIncoming(m) && ts(m) > readMs).length,
-    );
+
+const isMine = (m: Message) => m.sender_id === selfId.value;
+
+const {
+    reachedLastRead, firstUnseenIndex, readVisible, markAllRead, cancelRead,
+} = useChatReadState({
+    chat: () => props.chat,
+    messages,
+    isIncoming: (m) => !isMine(m),
+    lastVisibleMessageId,
 });
 
-/** Optional fields we may add to `Chat` later (presence, typing). */
-type ChatPresence = { is_online?: boolean; is_typing?: boolean };
-const presence = computed(() => props.chat as Chat & ChatPresence);
+const {
+    isOpen, x, y, activeMenuMessage, handleOpenMessageMenu, handleCloseMenu, handleMenuAction,
+    replyingToMessage, editingMessage, cancelEdit, resetComposerContext,
+} = useMessageActions({
+    draft,
+    findMessage,
+    removeMessage: remove,
+    openForward: (message) => forwardModalRef.value?.open(message),
+});
+
+/* ----------------------------------------------------------- derived data */
+
+/** Display name of the other side of the conversation. */
+const chatLabel = computed(() => props.chat.name ?? props.chat.slug);
+const authorLabel = (m: Message) => (isMine(m) ? 'You' : chatLabel.value);
+
 const statusText = computed(() => {
-    if (presence.value.is_typing) return 'typing…';
-    if (presence.value.is_online) return 'online';
+    if (props.chat.is_typing) return 'typing…';
+    if (props.chat.is_online) return 'online';
     return '';
 });
 
-type Row =
-    | { kind: 'date'; key: string; label: string }
-    | {
-        kind: 'message';
-        id?: string;
-        key: string | number;
-        text: string;
-        time: string;
-        updatedAt?: string;
-        forwardedFrom?: string;
-        isSent: boolean;
-        attachments?: Attachment[];
-        attachments_count?: number;
-    };
-
-const rows = computed<Row[]>(() =>
-    timeline.value.map((item, index) =>
-        isDateSeparator(item)
-            ? { kind: 'date', key: `date-${index}`, label: item.label }
-            : {
-                kind: 'message',
-                id: String(item.id),
-                key: item.id ?? `m-${index}`,
-                text: item.content,
-                time: item.created_at,
-                updatedAt: item.updated_at,
-                forwardedFrom: item.forwarded_from,
-                isSent: item.sender_id === selfId.value,
-                attachments: item.attachments,
-                attachments_count: item.attachments_count,
-            },
-    ),
-);
-
-const hasMessages = computed(() => messages.value.length > 0);
-
-/** id → message lookup so each bubble can resolve its reply target in O(1). */
-const messagesById = computed(() => new Map(messages.value.map((m) => [String(m.id), m])));
+/** Timeline grouped into date sections (a leading unlabeled group if no separator comes first). */
+const groups = computed<MessageGroup[]>(() => {
+    const out: MessageGroup[] = [];
+    timeline.value.forEach((item, index) => {
+        if (isDateSeparator(item)) {
+            out.push({ key: `date-${index}`, label: item.label, messages: [] });
+            return;
+        }
+        if (!out.length) out.push({ key: 'start', label: '', messages: [] });
+        out[out.length - 1].messages.push({
+            id: String(item.id),
+            key: item.id ?? `m-${index}`,
+            text: item.content,
+            time: item.created_at,
+            updatedAt: item.updated_at,
+            forwardedFrom: item.forwarded_from,
+            isSent: isMine(item),
+            attachments: item.attachments,
+            attachments_count: item.attachments_count,
+        });
+    });
+    return out;
+});
 
 const replyPreviewAuthor = computed(() => {
     const m = replyingToMessage.value;
-    if (!m) return '';
-    return m.sender_id === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
+    return m ? authorLabel(m) : '';
 });
+
 const replyPreviewText = computed(() => {
     const m = replyingToMessage.value;
     if (!m) return '';
@@ -205,69 +131,50 @@ const replyPreviewText = computed(() => {
     return m.attachments?.length ? 'Attachment' : '';
 });
 
-const ts = (m: Message) => new Date(m.created_at).getTime();
-const lastReadMs = () => (props.chat.last_read_at ? new Date(props.chat.last_read_at).getTime() : 0);
-const isIncoming = (m: Message) => m.sender_id !== selfId.value;
-const isUnseen = (m: Message) => isIncoming(m) && ts(m) > lastReadMs();
+const messageOf = (row: { id?: string }) => (row.id != null ? messagesById.value.get(String(row.id)) : undefined);
 
-function readVisible(): void {
-    if (props.chat.id == null) return;
-    const id = lastVisibleMessageId();
-    if (id == null) return;
-    let i = messages.value.findIndex((m) => String(m.id) === id);
-    while (i >= 0 && !isUnseen(messages.value[i])) i--;
-    if (i < 0) return;
-    markRead(messages.value[i], props.chat.id);
+function replyAuthorOf(row: { id?: string }): string | null | undefined {
+    const reply = messageOf(row)?.reply_to;
+    if (!reply) return null;
+    return authorLabel(messagesById.value.get(String(reply.id)) ?? reply);
 }
 
-async function openChat(slug: string): Promise<void> {
-    cancelRead();
-    const previousEl = listRef.value;
-    showGoToBottom.value = false;
-    await loadInitial(slug);
+/* ------------------------------------------------- opening / scrolling */
 
-    if (props.chat.last_read_at) {
-        for (let n = 0; n < 50 && !isLastPage.value; n++) {
-            const oldest = messages.value[0];
-            if (!oldest || ts(oldest) <= lastReadMs()) break;
-            if (!(await loadOlder(slug))) break;
-        }
-    }
-    await waitForList(previousEl);
-
-    const first = props.chat.last_read_at ? messages.value.findIndex(isUnseen) : -1;
+/** Land on the first unseen message, or the bottom when everything is read. */
+function positionInitialScroll(): void {
+    const first = firstUnseenIndex();
     if (first > 0) {
         scrollToMessageBottom(messages.value[first - 1].id!);
     } else if (first === 0) {
-        listRef.value && (listRef.value.scrollTop = 0);
+        scrollToTop();
     } else {
         scrollToBottom();
     }
+}
+
+async function openChat(slug: string): Promise<void> {
+    const isStale = () => props.chat.slug !== slug;
+
+    cancelRead();
+    const previousEl = listRef.value;
+    showGoToBottom.value = false;
+
+    await loadInitial(slug);
+    if (isStale()) return;
+
+    if (props.chat.last_read_at) {
+        await loadOlderUntil(slug, reachedLastRead);
+        if (isStale()) return;
+    }
+
+    await waitForList(previousEl, () => isChatEmpty.value === true || userExists.value === false);
+    if (isStale()) return;
+
+    positionInitialScroll();
     updateGoToBottom();
     readVisible();
 }
-
-async function waitForList(previous: HTMLElement | null): Promise<void> {
-    for (let i = 0; i < 40; i++) {
-        if (isChatEmpty.value === true || userExists.value === false) return;
-        const el = listRef.value;
-        if (el && el !== previous && el.isConnected) break;
-        await new Promise((r) => setTimeout(r, 25));
-    }
-    await nextTick();
-}
-
-watch(
-    () => props.chat.slug,
-    (slug) => {
-        replyingToMessage.value = null;
-        editingMessage.value = null;
-        if (slug) {
-            void openChat(slug);
-        }
-    },
-    { immediate: true },
-);
 
 async function handleScroll(): Promise<void> {
     updateGoToBottom();
@@ -281,39 +188,20 @@ async function handleScroll(): Promise<void> {
 
 async function goToBottom(): Promise<void> {
     scrollToBottom(true);
-    const chatId = props.chat.id;
-    if (chatId == null || !messages.value.some(isUnseen)) return;
-    const prevReadAt = props.chat.last_read_at;
-    const prevCount = props.chat.unseen_messages_count;
-    cancelRead();
-    chatStore.seenAll(chatId);
-    try {
-        await markChatAsRead(chatId);
-    } catch (err) {
-        props.chat.last_read_at = prevReadAt;
-        props.chat.unseen_messages_count = prevCount;
-        console.error('Failed to mark chat as read', err);
-    }
+    await markAllRead();
 }
 
-watch(
-    () => chatStore.lastIncoming,
-    (incoming) => {
-        if (!incoming || incoming.chat_id !== props.chat.id) {
-            return;
-        }
-        const wasNearBottom = isNearBottom(120);
-        append(incoming);
-        if (wasNearBottom) {
-            void nextTick(() => {
-                scrollToBottom(true);
-                readVisible();
-            });
-        }
-    },
-);
+/* ------------------------------------------------------------ send / edit */
 
-onBeforeUnmount(cancelRead);
+/** Reflect a just-sent message in the chat list preview. */
+function updateLastMessage(chatId: number | null | undefined, sent: Message): void {
+    if (chatId == null) return;
+    chatStore.setLastMessage({
+        chat_id: chatId,
+        content: sent.content,
+        created_at: sent.created_at,
+    });
+}
 
 async function handleSend(): Promise<void> {
     const content = draft.value.trim();
@@ -324,23 +212,18 @@ async function handleSend(): Promise<void> {
     sending.value = true;
     try {
         if (editingMessage.value) {
-            const msgId = editingMessage.value.id;
-            if (msgId != null) {
-                const res = await updateMessage(String(msgId), content);
-                const target = messages.value.find(m => String(m.id) === String(msgId));
-                if (target) {
-                    target.content = content;
-                    target.updated_at = new Date().toISOString();
-                }
+            const editedId = editingMessage.value.id;
+            if (editedId != null) {
+                await edit(editedId, content);
             }
-            editingMessage.value = null;
-            draft.value = '';
-            sending.value = false;
+            cancelEdit();
             return;
         }
 
         const replyToId = replyingToMessage.value?.id != null ? Number(replyingToMessage.value.id) : null;
         const message = await send(slug, content, attachments.value, replyToId);
+
+        // First message of a brand-new chat: register it in the list.
         if (props.chat.id == null) {
             chatStore.addChat(
                 message?.chat?.id || 0,
@@ -351,19 +234,13 @@ async function handleSend(): Promise<void> {
             );
             chatStore.selectChatBySlug(slug);
         }
+
         replyingToMessage.value = null;
-        if (props.chat.id != null) {
-            // chatStore.setLastMessage(props.chat.id, message.content, message.created_at);
-            chatStore.setLastMessage({
-                chat_id: props.chat.id,
-                content: message.content,
-                created_at: message.created_at,
-            });
-        }
+        updateLastMessage(props.chat.id, message);
         draft.value = '';
         attachments.value = [];
-        await nextTick();
-        scrollToBottom(true);
+
+        await scrollToBottomAfterRender();
         if (props.chat.id != null) {
             chatStore.seenAll(props.chat.id);
         }
@@ -373,6 +250,8 @@ async function handleSend(): Promise<void> {
         sending.value = false;
     }
 }
+
+/* ---------------------------------------------------------------- forward */
 
 const forwardsInFlight = new Set<string>();
 
@@ -388,17 +267,9 @@ async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
             ? await send(slug, msg.content ?? '', [], null, Number(msg.id))
             : await forwardMessage(slug, msg);
 
-        if (targetChat.id != null) {
-            // chatStore.setLastMessage(targetChat.id, sent.content, sent.created_at);
-            chatStore.setLastMessage({
-                chat_id: targetChat.id,
-                content: sent.content,
-                created_at: sent.created_at,
-            });
-        }
+        updateLastMessage(targetChat.id, sent);
         if (isCurrentChat) {
-            await nextTick();
-            scrollToBottom(true);
+            await scrollToBottomAfterRender();
         }
     } finally {
         forwardsInFlight.delete(key);
@@ -422,55 +293,7 @@ async function handleForwardMessage(targetChats: Chat[], msgToForward: Message):
     }
 }
 
-const messageOf = (row: { id?: string }) => (row.id != null ? messagesById.value.get(String(row.id)) : undefined);
-
-function replyAuthorOf(row: { id?: string }): string | null {
-    const reply = messageOf(row)?.reply_to;
-    if (!reply) return null;
-    const full = messagesById.value.get(String(reply.id)) ?? reply;
-    return full.sender_id === selfId.value ? 'You' : (props.chat.name ?? props.chat.slug);
-}
-
-function jumpToMessage(messageId: number | string): void {
-    const el = listRef.value?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
-    if (!el) return;
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    el.animate(
-        [{ backgroundColor: 'rgba(59, 130, 246, 0.25)' }, { backgroundColor: 'transparent' }],
-        { duration: 1400, easing: 'ease-out' },
-    );
-}
-
-type MessageRow = Extract<Row, { kind: 'message' }>;
-
-const groups = computed(() => {
-    const out: { key: string; label: string; messages: MessageRow[] }[] = [];
-    for (const row of rows.value) {
-        if (row.kind === 'date') {
-            out.push({ key: row.key, label: row.label, messages: [] });
-        } else {
-            if (!out.length) out.push({ key: 'start', label: '', messages: [] });
-            out[out.length - 1].messages.push(row);
-        }
-    }
-    return out;
-});
-
-onKeyStroke('Escape', () => {
-    if (hasOpenOverlay.value) return;
-    if (editingMessage.value) {
-        editingMessage.value = null;
-        draft.value = '';
-        return;
-    }
-    if (replyingToMessage.value) {
-        replyingToMessage.value = null;
-        return;
-    }
-    router.push('/');
-});
-
-const isDraggingOver = ref(false);
+/* ------------------------------------------------------------ drag & drop */
 
 function handleDragOver(e: DragEvent): void {
     e.preventDefault();
@@ -491,6 +314,51 @@ function handleDrop(e: DragEvent): void {
         attachments.value.push(...Array.from(e.dataTransfer.files));
     }
 }
+
+/* ------------------------------------------------- lifecycle & listeners */
+
+watch(
+    () => props.chat.slug,
+    (slug) => {
+        resetComposerContext();
+        if (slug) {
+            void openChat(slug);
+        }
+    },
+    { immediate: true },
+);
+
+watch(
+    () => chatStore.lastIncoming,
+    (incoming) => {
+        if (!incoming || incoming.chat_id !== props.chat.id) {
+            return;
+        }
+        const wasNearBottom = isNearBottom(120);
+        append(incoming);
+        if (wasNearBottom) {
+            void nextTick(() => {
+                scrollToBottom(true);
+                readVisible();
+            });
+        }
+    },
+);
+
+onKeyStroke('Escape', () => {
+    if (hasOpenOverlay.value) return;
+    if (editingMessage.value) {
+        cancelEdit();
+        return;
+    }
+    if (replyingToMessage.value) {
+        replyingToMessage.value = null;
+        return;
+    }
+    router.push('/');
+});
+
+onBeforeUnmount(cancelRead);
 </script>
 
 <template>
@@ -630,7 +498,7 @@ function handleDrop(e: DragEvent): void {
             </div>
             <button type="button" aria-label="Cancel edit"
                 class="grid rounded-full size-7 place-items-center hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
-                @click="editingMessage = null; draft.value = ''">
+                @click="cancelEdit">
                 <CloseIcon class="size-4 text-gray-500" />
             </button>
         </div>
