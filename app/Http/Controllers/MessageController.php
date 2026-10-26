@@ -112,7 +112,6 @@ class MessageController extends Controller
                 'forwardedFromMessage.sender.profilePhoto',
                 'forwardedFromMessage.chat.profilePhoto'
             ])
-            // ->withExists('replyTo.media')
             ->where('chat_id', $chat->id)
             // Exclude messages deleted individually by this user ("Delete for Me")
             ->whereNotExists(function ($subQuery) use ($currentUser) {
@@ -232,6 +231,7 @@ class MessageController extends Controller
             // abort(500, $th->getMessage());
         }
 
+        // (new Message())->setRelation()
         $message->load([
             'chat',
             'media',

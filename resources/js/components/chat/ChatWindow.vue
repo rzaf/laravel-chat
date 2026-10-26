@@ -584,7 +584,7 @@ function handleDrop(e: DragEvent): void {
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type" :data-message-id="row.id"
                             :message="row.text" :time="row.time" :updated-at="row.updatedAt" :is-sent="row.isSent" :attachments="row.attachments"
-                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
+                            :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
                             :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
                             :is-menu-open="activeMenuMessage?.key === row.key"
                             @open-menu="handleOpenMessageMenu(row, $event)" />

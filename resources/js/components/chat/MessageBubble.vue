@@ -20,6 +20,7 @@ const props = defineProps<{
     attachments?: Attachment[];
     isMenuOpen?: boolean;
     /** The message this one replies to. */
+    replyToMessageId?: number; // shows reply existed even when deleted
     replyTo?: Message | null;
     /** Display name of the replied-to message's author ("You" or the contact's name). */
     replyAuthor: string | null;
@@ -88,7 +89,7 @@ const isEdited = computed(() => {
             </div>
 
             <!-- Reply quote -->
-            <button v-if="replyTo" type="button" :aria-label="`Go to replied message from ${replyAuthor ?? 'user'}`"
+            <button v-if="replyToMessageId" type="button" :aria-label="`Go to replied message from ${replyAuthor ?? 'user'}`"
                 class="flex w-[calc(100%-1rem)] mx-2 mt-2 overflow-hidden text-left transition-colors rounded-lg cursor-pointer"
                 :class="isSent ? 'bg-white/15 hover:bg-white/20' : 'bg-blue-50 hover:bg-blue-100 dark:bg-black/20 dark:hover:bg-black/30'"
                 @click.stop="jumpToReply">
@@ -98,12 +99,12 @@ const isEdited = computed(() => {
                         :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
                         {{ replyAuthor ?? 'Message' }}
                     </span>
-                    <span v-if="replyText" class="break-words line-clamp-2 opacity-90">{{ replyText }}</span>
+                    <span v-if="replyTo===null" class="italic opacity-70 text-nowrap">Message unavailable</span>
+                    <span v-else-if="replyText" class="break-words line-clamp-2 opacity-90">{{ replyText }}</span>
                     <span v-else-if="replyHasAttachment" class="flex items-center gap-1 italic opacity-90">
                         <PaperClipIcon class="size-3.5 shrink-0" />
                         Attachment
                     </span>
-                    <span v-else class="italic opacity-70">Message unavailable</span>
                 </span>
             </button>
 

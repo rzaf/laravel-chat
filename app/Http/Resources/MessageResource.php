@@ -9,6 +9,11 @@ class MessageResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        if ($this->relationLoaded('replyTo') ) {
+            if ($this->replyTo && $this->replyTo->deleted_at != null){
+                $this->setRelation('replyTo', null);
+            }
+        }
         return [
             'id' => $this->id,
             'content' => $this->content,
