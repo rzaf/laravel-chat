@@ -14,13 +14,14 @@ interface Options {
     /** Deletes on the server and removes locally (`useMessages().remove`). */
     removeMessage: (id: string | number, deleteForEveryone: boolean) => Promise<void>;
     openForward: (message: Message) => void;
+    focusComposer?: () => void;
 }
 
 /**
  * Per-message context menu and the actions it triggers, plus the
  * reply / edit state shown above the composer.
  */
-export function useMessageActions({ draft, findMessage, removeMessage, openForward }: Options) {
+export function useMessageActions({ draft, findMessage, removeMessage, openForward, focusComposer }: Options) {
     const { isOpen, x, y, open, close } = useContextMenu();
     const { confirm } = useConfirm();
 
@@ -33,12 +34,14 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
     function startReply(message: Message): void {
         replyingToMessage.value = message;
         editingMessage.value = null; // can't edit and reply simultaneously
+        focusComposer?.();    
     }
 
     function startEdit(message: Message): void {
         editingMessage.value = message;
         draft.value = message.content;
         replyingToMessage.value = null; // can't reply and edit simultaneously
+        focusComposer?.();
     }
 
     function cancelReply(): void {

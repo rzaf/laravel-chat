@@ -98,6 +98,14 @@ function handleKeydown(e: KeyboardEvent): void {
     }
 }
 
+/**
+ * Programmatic focus opens the on-screen keyboard on phones/tablets (primary pointer is
+ * "coarse"), covering the chat. Only auto-focus on devices with a mouse/trackpad.
+ */
+function canAutoFocus(): boolean {
+    return !window.matchMedia('(pointer: coarse)').matches;
+}
+
 function replaceTextWithEmoji(payload: { emoji: string; start: number; length: number }): void {
     const el = textareaRef.value;
     if (!el) return;
@@ -143,16 +151,34 @@ watch(model, (value) => {
         void nextTick(() => {
             if (textareaRef.value) {
                 textareaRef.value.style.height = '40px';
-                requestAnimationFrame(() => {
-                    textareaRef.value?.focus({ preventScroll: true });
-                });
+                if (canAutoFocus()) {
+                    requestAnimationFrame(() => {
+                        textareaRef.value?.focus({ preventScroll: true });
+                    });
+                }
             }
         });
     }
 });
 
+/** Focus the textarea (caret at the end). Exposed so the parent can call it. */
+function focus(): void {
+    if (!canAutoFocus()) return;
+    // rAF: wait for Vue to flush the DOM and for a closing menu/modal to release focus.
+    requestAnimationFrame(() => {
+        const el = textareaRef.value;
+        if (!el) return;
+        el.focus({ preventScroll: true });
+        el.setSelectionRange(el.value.length, el.value.length);
+    });
+}
+
+defineExpose({ focus });
+
 onMounted(() => {
-    textareaRef.value?.focus({ preventScroll: true });
+    if (canAutoFocus()) {
+        textareaRef.value?.focus({ preventScroll: true });
+    }
 });
 
 onUnmounted(() => {

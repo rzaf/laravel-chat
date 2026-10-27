@@ -43,6 +43,7 @@ const selfId = computed(() => auth.user?.id);
 
 const listRef = useTemplateRef<HTMLElement>('listRef');
 const forwardModalRef = useTemplateRef<InstanceType<typeof ForwardModal>>('forwardModalRef');
+const composerRef = useTemplateRef<InstanceType<typeof MessageComposer>>('composerRef');
 
 const draft = ref('');
 const attachments = ref<File[]>([]);
@@ -81,6 +82,7 @@ const {
     findMessage,
     removeMessage: remove,
     openForward: (message) => forwardModalRef.value?.open(message),
+    focusComposer,    
 });
 
 /* ----------------------------------------------------------- derived data */
@@ -317,10 +319,15 @@ function handleDrop(e: DragEvent): void {
 
 /* ------------------------------------------------- lifecycle & listeners */
 
+function focusComposer(): void {
+    composerRef.value?.focus();
+}
+
 watch(
     () => props.chat.slug,
     (slug) => {
         resetComposerContext();
+        focusComposer();
         if (slug) {
             void openChat(slug);
         }
@@ -503,7 +510,7 @@ onBeforeUnmount(cancelRead);
             </button>
         </div>
 
-        <MessageComposer v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
+        <MessageComposer ref="composerRef" v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
 
         <!-- Forward Modal -->
         <ForwardModal ref="forwardModalRef" @forward="handleForwardMessage" />
