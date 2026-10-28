@@ -3,13 +3,19 @@ import { computed, onMounted, ref } from 'vue';
 import { onKeyStroke, useDebounceFn } from '@vueuse/core';
 import { useModalControl } from '@/composables/useModalControl';
 import { useFormErrors } from '@/composables/useFormErrors';
+import { useContextMenu } from '@/composables/useContextMenu';
+import { useConfirm } from '@/composables/useConfirm';
 import Modal from '@/components/common/Modal.vue';
+import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { Contact, User } from '@/types';
 import ContactItem from './ContactItem.vue';
 import { searchUsers as apiSearchUsers, deleteContact as apiDeleteContact, addOrUpdateContact, getContacts } from '@/api';
 import CloseIcon from '@/assets/svgs/Close.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
 import CheckIcon from '@/assets/svgs/Check.svg';
+import ForwardIcon from '@/assets/svgs/Forward.svg';
+import EditIcon from '@/assets/svgs/Edit.svg';
+import TrashIcon from '@/assets/svgs/Trash.svg';
 import Avatar from '../chat/Avatar.vue';
 
 const emit = defineEmits<{
@@ -20,9 +26,48 @@ const emit = defineEmits<{
 const { modal, open, close, toggle, isOpen } = useModalControl();
 const { errors, setFromError, clear } = useFormErrors(['username', 'name']);
 
+/* ---------- shared context menu state ---------- */
+const { isOpen: isContextMenuOpen, x, y, open: openContextMenu, close: closeContextMenu } = useContextMenu();
+const activeMenuContact = ref<Contact | null>(null);
+
+function handleOpenMenu(contact: Contact, event: MouseEvent) {
+    activeMenuContact.value = contact;
+    openContextMenu(event);
+}
+
+function handleCloseMenu() {
+    closeContextMenu();
+    activeMenuContact.value = null;
+}
+
+const { confirm } = useConfirm();
+
+function handleOpenChat(contact: Contact) {
+    handleCloseMenu();
+    close();
+    emit('openDirectChat', contact.user.username);
+}
+
+function handleEdit(contact: Contact) {
+    handleCloseMenu();
+    emit('openEditContactModal', contact.user.username, contact.name);
+}
+
+async function handleDelete(contact: Contact) {
+    handleCloseMenu();
+    const isConfirmed = await confirm(`Are you sure you want to delete ${contact.user.username}?`);
+    if (isConfirmed) {
+        await removeContact(contact.user.username);
+    }
+}
 
 function handleEscape(): void {
     if (!isOpen()) return;
+
+    if (isContextMenuOpen.value) {
+        handleCloseMenu();
+        return;
+    }
 
     if (selectedUser.value != null) {
         clearSelection();
@@ -145,6 +190,8 @@ async function addContact(): Promise<void> {
         currentPage.value = 1;
         selectedUserName.value = '';
         searchedUsers.value = [];
+        gotAllPages.value = true;
+        isSearching.value = false;
         saveContact(res);
         emit('openDirectChat', res.user.username);
     } catch (err: unknown) {
@@ -202,9 +249,10 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
                         {{ userName ? 'In your contacts' : 'Your contacts' }}
                     </h3>
                     <ContactItem v-for="contact in filteredContacts" :key="contact.user.username" :contact="contact"
+                        :is-menu-open="activeMenuContact?.user.username === contact.user.username"
                         @close-contacts-modals="close"
                         @open-edit-contact-modal="(username, name) => emit('openEditContactModal', username, name)"
-                        @delete-contact="removeContact" />
+                        @delete-contact="removeContact" @open-menu="handleOpenMenu" />
                 </section>
 
                 <!-- Empty: no contacts yet -->
@@ -235,7 +283,8 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
                             </span>
                             <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ u.username }}</span>
                         </span>
-                        <CheckIcon v-if="selectedUserName === u.username" class="text-blue-600 size-5 shrink-0 dark:text-blue-400" />
+                        <CheckIcon v-if="selectedUserName === u.username"
+                            class="text-blue-600 size-5 shrink-0 dark:text-blue-400" />
                     </button>
 
                     <!-- Skeletons while searching -->
@@ -301,6 +350,32 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
                     <p v-if="errors.name" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ errors.name }}</p>
                 </form>
             </Transition>
+
+            <!-- Shared Global Context Menu -->
+            <ContextMenu :is-open="isContextMenuOpen" :x="x" :y="y" @close="handleCloseMenu" :align="'right'">
+                <div v-if="activeMenuContact" class="py-1 min-w-[140px]">
+                    <button type="button"
+                        class="flex items-center w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                        @click.stop="handleOpenChat(activeMenuContact)">
+                        <ForwardIcon class="size-4 mr-2.5 text-gray-500 dark:text-gray-400" />
+                        Open Chat
+                    </button>
+
+                    <button type="button"
+                        class="flex items-center w-full px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                        @click.stop="handleEdit(activeMenuContact)">
+                        <EditIcon class="size-4 mr-2.5 text-gray-500 dark:text-gray-400" />
+                        Edit
+                    </button>
+
+                    <button type="button"
+                        class="flex items-center w-full px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                        @click.stop="handleDelete(activeMenuContact)">
+                        <TrashIcon class="size-4 mr-2.5 text-red-500 dark:text-red-400" />
+                        Delete
+                    </button>
+                </div>
+            </ContextMenu>
         </div>
     </Modal>
 </template>
