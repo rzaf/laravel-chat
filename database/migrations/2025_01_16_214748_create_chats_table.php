@@ -16,10 +16,11 @@ return new class extends Migration
 
             $table->string('name')->nullable();
             $table->string('slug', 127)->unique()->nullable();
-            $table->enum('type', ['direct', 'group'])->default('direct');
+            $table->enum('type', ['direct', 'group', 'channel'])->default('direct');
             $table->boolean('is_private')->default(false);
             $table->boolean('is_readonly')->default(false); // indicate if non admin members can send messages in the group (channels)
             $table->string('description', 512)->nullable();
+            $table->string('invite_code', 32)->nullable()->unique();
 
             $table->foreignId('creator')->constrained('users');
 

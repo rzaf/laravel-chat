@@ -9,8 +9,8 @@ class MessageResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        if ($this->relationLoaded('replyTo') ) {
-            if ($this->replyTo && $this->replyTo->deleted_at != null){
+        if ($this->relationLoaded('replyTo')) {
+            if ($this->replyTo && $this->replyTo->deleted_at != null) {
                 $this->setRelation('replyTo', null);
             }
         }
@@ -18,6 +18,11 @@ class MessageResource extends JsonResource
             'id' => $this->id,
             'content' => $this->content,
             'sender_id' => $this->sender_id,
+            // Only present when the `sender` relation is loaded (groups / channels need the author).
+            'sender' => $this->when(
+                $this->relationLoaded('sender'),
+                fn() => $this->sender ? new UserResource($this->sender) : null
+            ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
             'reply_to_id' => $this->reply_to_id,
@@ -42,7 +47,7 @@ class MessageResource extends JsonResource
 
                 return new ChatResource($chat);
             }),
-            
+
             'chat_id' => $this->chat_id,
             'chat' => new ChatResource(
                 $this->whenLoaded('chat')
@@ -53,7 +58,7 @@ class MessageResource extends JsonResource
             // 'attachments_count' => $this->whenCounted('media'),
             'attachments_count' => $this->when(
                 $this->relationLoaded('media') || array_key_exists('media_count', $this->resource->getAttributes()),
-                fn () => $this->relationLoaded('media') ? $this->media->count() : $this->media_count
+                fn() => $this->relationLoaded('media') ? $this->media->count() : $this->media_count
             ),
         ];
     }

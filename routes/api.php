@@ -3,6 +3,7 @@
 use App\Http\Controllers\OAuthController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ChatController;
+use App\Http\Controllers\ChatMemberController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\MessageController;
@@ -21,9 +22,9 @@ Route::post('/auth/callback/{provider}', [OAuthController::class, 'callback']);
 
 Route::post('/login', [AuthController::class, 'login'])->name('login');
 Route::post('/register', [AuthController::class, 'register']);
-Route::middleware('auth:sanctum')->group(function() {
-    Route::put('/user',[AuthController::class,'update']);
-    Route::put('/user/password',[AuthController::class,'changePassword']);
+Route::middleware('auth:sanctum')->group(function () {
+    Route::put('/user', [AuthController::class, 'update']);
+    Route::put('/user/password', [AuthController::class, 'changePassword']);
 });
 
 Route::group(['prefix' => 'users', 'middleware' => ['auth:sanctum']], function () {
@@ -41,9 +42,15 @@ Route::group(['prefix' => 'contacts', 'middleware' => ['auth:sanctum']], functio
 });
 
 Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], function () {
+    // direct chats — addressed by the other user's username
     Route::get('/direct/{username}', [MessageController::class, 'getDirectMessages']);
     Route::post('/direct/{username}', [MessageController::class, 'storeDirectMessage']);
 
+    // groups & channels — addressed by the chat slug
+    Route::get('/chats/{slug}', [MessageController::class, 'getChatMessages']);
+    Route::post('/chats/{slug}', [MessageController::class, 'storeChatMessage']);
+
+    // any chat type
     Route::put('/{id}', [MessageController::class, 'update']);
     Route::delete('/{id}', [MessageController::class, 'destroy']);
     Route::put('/{id}/read', [MessageController::class, 'markAsReadMessage']);
@@ -51,10 +58,28 @@ Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], functio
 
 Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function () {
     Route::get('/', [ChatController::class, 'index']);
+    Route::post('/', [ChatController::class, 'store']);                       // create group / channel
+
+    // ---- fixed paths MUST be declared before the `/{slug}` wildcard ----
+    Route::get('/public', [ChatController::class, 'discover']);               // search public groups / channels
+    Route::get('/public/{slug}', [ChatController::class, 'preview']);         // info for a public chat (not joined yet)
+    Route::post('/join/{inviteCode}', [ChatController::class, 'joinByInvite']);
+
     Route::get('/{slug}', [ChatController::class, 'getChat']);
-    Route::delete('/{id}', [ChatController::class, 'destroy']);
+    Route::delete('/{id}', [ChatController::class, 'destroy']);               // delete / leave
     Route::delete('/{id}/clear', [ChatController::class, 'clearHistory']);
 
+    Route::put('/{chatId}', [ChatController::class, 'update'])->whereNumber('chatId');          // edit group / channel
+    Route::post('/{chatId}/join', [ChatController::class, 'join'])->whereNumber('chatId');      // join a public chat
+    Route::post('/{chatId}/invite-link', [ChatController::class, 'regenerateInvite'])->whereNumber('chatId');
+
+    // members of a group / channel
+    Route::get('/{chatId}/members', [ChatMemberController::class, 'index'])->whereNumber('chatId');
+    Route::post('/{chatId}/members', [ChatMemberController::class, 'store'])->whereNumber('chatId');
+    Route::put('/{chatId}/members/{userId}', [ChatMemberController::class, 'update'])->whereNumber(['chatId', 'userId']);
+    Route::delete('/{chatId}/members/{userId}', [ChatMemberController::class, 'destroy'])->whereNumber(['chatId', 'userId']);
+
+    // per-user settings (any chat type)
     Route::patch('/{chatId}/pin', [ChatController::class, 'togglePin']);
     Route::patch('/{chatId}/mute', [ChatController::class, 'setMute']);
     Route::patch('/{chatId}/archive', [ChatController::class, 'toggleArchive']);
@@ -79,4 +104,3 @@ Route::group(['prefix' => 'medias'], function () {
     // Private media
     Route::get('/private/{id}', [MediaController::class, 'private'])->middleware('signed')->name('media.private');
 });
-

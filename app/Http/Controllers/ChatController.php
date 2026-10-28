@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\ChecksChatAccess;
 use App\Http\Resources\UserResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
@@ -10,14 +11,26 @@ use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Carbon\Carbon;
 
 /**
  * @authenticated
  * @group Chats
+ *
+ * Chat types:
+ *  - direct  : two users, addressed by the peer's username.
+ *  - group   : many users, everyone can post (unless is_readonly).
+ *  - channel : many users, only admins / the owner can post.
  */
 class ChatController extends Controller
 {
+    use ChecksChatAccess;
+
+    /** Slugs that would collide with fixed routes (`/chats/public`, `/chats/join/...`). */
+    protected const RESERVED_SLUGS = 'public,join';
+
     /**
      * Build the shared base query for fetching chats with all joins and computed fields.
      */
@@ -33,10 +46,13 @@ class ChatController extends Controller
             ->where('chat_members.user_id', $userId)
             ->whereNull('chat_members.deleted_at')
             ->join('chats', 'chats.id', '=', 'chat_members.chat_id')
-            // Join peer (other member) for direct chats
+            ->whereNull('chats.deleted_at')
+            // Join peer (the other member) — DIRECT chats only. Without the type
+            // condition a group would produce one row per other member.
             ->leftJoin('chat_members as peer_members', function ($join) use ($userId) {
                 $join->on('peer_members.chat_id', '=', 'chat_members.chat_id')
-                    ->where('peer_members.user_id', '!=', $userId);
+                    ->where('peer_members.user_id', '!=', $userId)
+                    ->where('chats.type', '=', 'direct');
             })
             ->leftJoin('users as peer', 'peer.id', '=', 'peer_members.user_id')
             // Join user_contacts for custom contact names in direct chats
@@ -70,11 +86,8 @@ class ChatController extends Controller
                 $join->on('latest_msg_ids.chat_id', '=', 'chats.id');
             })
             ->leftJoin('messages as latest_msg', 'latest_msg.id', '=', 'latest_msg_ids.id')
-            // // Hide chat from list if it was cleared and no new messages arrived after cleared_at
-            // ->where(function ($query) {
-            //     $query->whereNull('chat_user_settings.cleared_at')
-            //         ->orWhereColumn('latest_msg.created_at', '>', 'chat_user_settings.cleared_at');
-            // })
+            // author of the last message (the list shows "Alice: hi" in groups)
+            ->leftJoin('users as latest_sender', 'latest_sender.id', '=', 'latest_msg.sender_id')
             ->select([
                 DB::raw('COALESCE(chats.slug, peer.username) as slug'),
                 // Priority: Custom Contact Name -> Peer Name -> Chat Name
@@ -83,6 +96,13 @@ class ChatController extends Controller
                 'chats.type',
                 'chats.id as id',
                 'chats.created_at',
+                // group / channel info
+                'chats.description',
+                'chats.is_private',
+                'chats.is_readonly',
+                'chats.invite_code',
+                'chats.creator as owner_id',
+                'chat_members.role as my_role',
                 // Respect cleared_at for message preview text as well
                 DB::raw('
                     CASE 
@@ -97,6 +117,7 @@ class ChatController extends Controller
                         ELSE latest_msg.created_at 
                     END as last_message_created_at'),
                 'latest_msg.sender_id as last_message_sender_id',
+                'latest_sender.name as last_message_sender_name',
                 DB::raw('
                     CASE 
                         WHEN latest_msg.id IS NULL THEN 1
@@ -109,9 +130,16 @@ class ChatController extends Controller
                 DB::raw('COALESCE(chat_user_settings.is_pinned, 0) as pinned'),
                 DB::raw('COALESCE(chat_user_settings.is_muted, 0) as muted'),
                 DB::raw('COALESCE(chat_user_settings.is_archived, 0) as archived'),
+                'chat_user_settings.muted_until',
                 'chat_user_settings.draft',
                 'chat_user_settings.last_read_at AS last_read_at',
             ])
+            ->selectSub(function ($query) {
+                $query->from('chat_members as cm')
+                    ->whereColumn('cm.chat_id', 'chats.id')
+                    ->whereNull('cm.deleted_at')
+                    ->selectRaw('COUNT(*)');
+            }, 'members_count')
             ->selectSub(function ($query) use ($userId) {
                 $query->from('messages')
                     ->whereColumn('messages.chat_id', 'chat_members.chat_id')
@@ -158,6 +186,7 @@ class ChatController extends Controller
     protected function formatChat($chat)
     {
         $currentUserId = auth()->id();
+        $isDirect = $chat->type === 'direct';
 
         $chat->last_message_created_at = $chat->last_message_created_at
             ? Carbon::parse($chat->last_message_created_at)
@@ -181,6 +210,23 @@ class ChatController extends Controller
         // $chat->is_online = (bool) $chat->is_online;
         $chat->is_typing = false;
 
+        // Group / channel properties
+        $chat->is_private = (bool) $chat->is_private;
+        $chat->is_readonly = (bool) $chat->is_readonly;
+        $chat->members_count = $isDirect ? null : (int) $chat->members_count;
+        $chat->can_send = $isDirect
+            || $this->isAdminRole($chat->my_role)
+            || ($chat->type === 'group' && !$chat->is_readonly);
+        if ($isDirect) {
+            $chat->owner_id = null;
+            $chat->description = null;
+            $chat->last_message_sender_name = null;
+        }
+        // only admins may see / share the invite link
+        if (!$this->isAdminRole($chat->my_role)) {
+            unset($chat->invite_code);
+        }
+
         $chat->last_message_is_mine = $chat->last_message_sender_id == $currentUserId;
 
         if ($chat->last_message_is_mine) {
@@ -194,6 +240,14 @@ class ChatController extends Controller
         return $chat;
     }
 
+    /** One formatted chat row for the given user (or null if they are not a member). */
+    protected function findFormattedChat(int $userId, int $chatId)
+    {
+        $chat = $this->baseChatQuery($userId)->where('chats.id', $chatId)->first();
+
+        return $chat ? $this->formatChat($chat) : null;
+    }
+
     public function index(Request $req)
     {
         $userId = $req->user()->id;
@@ -204,6 +258,13 @@ class ChatController extends Controller
             ->map(fn($chat) => $this->formatChat($chat));
     }
 
+
+    /**
+     * get chat
+     * 
+     * @urlParam slug string Example: test
+     * 
+     */
     public function getChat(Request $req, string $slug)
     {
         $userId = $req->user()->id;
@@ -217,13 +278,280 @@ class ChatController extends Controller
             $this->formatChat($chat);
         }
 
+        // only direct chats have a "peer" user to describe
         $user = (($chat->type ?? 'direct') != 'direct') ? null : User::where('username', $slug)->first();
 
         return response()->json([
             'chat' => $chat,
-            'user' => new UserResource($user),
+            'user' => $user ? new UserResource($user) : null,
         ], 200);
     }
+
+    /* ------------------------------------------------------------------
+     | Create / edit groups & channels
+     * ----------------------------------------------------------------- */
+
+    protected function generateSlug(string $name): string
+    {
+        do {
+            $slug = (Str::slug($name) ?: 'chat') . '-' . Str::lower(Str::random(10));
+        } while (
+            Chat::withTrashed()->where('slug', $slug)->exists()
+            || User::where('username', $slug)->exists()
+        );
+
+        return $slug;
+    }
+
+    /**
+     * Create a group or a channel. The creator becomes its owner.
+     *
+     * @bodyParam type string required group|channel
+     * @bodyParam name string required
+     * @bodyParam description string optional
+     * @bodyParam slug string optional Public link name; generated when omitted.
+     * @bodyParam is_private boolean optional Private chats can only be joined with the invite link.
+     * @bodyParam is_readonly boolean optional Groups only: only admins can send.
+     * @bodyParam members string[] optional Usernames to add right away.
+     * 
+     */
+    public function store(Request $req)
+    {
+        $user = $req->user();
+        $validated = $req->validate([
+            'type' => 'required|in:group,channel',
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string|max:512',
+            'slug' => [
+                'nullable', 'string', 'min:3', 'max:127', 'regex:/^[A-Za-z0-9_-]+$/',
+                'not_in:' . self::RESERVED_SLUGS,
+                'unique:chats,slug', 'unique:users,username',
+            ],
+            'is_private' => 'sometimes|boolean',
+            'is_readonly' => 'sometimes|boolean',
+            'members' => 'sometimes|array|max:50',
+            'members.*' => 'string|exists:users,username',
+        ]);
+
+        $chat = DB::transaction(function () use ($validated, $user, $req) {
+            $chat = new Chat();
+            $chat->forceFill([
+                'creator' => $user->id,
+                'type' => $validated['type'],
+                'name' => $validated['name'],
+                'slug' => $validated['slug'] ?? $this->generateSlug($validated['name']),
+                'description' => $validated['description'] ?? null,
+                'is_private' => $req->boolean('is_private', false),
+                // channels are always read-only for normal members
+                'is_readonly' => $validated['type'] === 'channel' ? true : $req->boolean('is_readonly', false),
+                'invite_code' => Str::random(24),
+            ])->save();
+
+            $this->addMember($chat, $user->id, 'owner');
+
+            $memberIds = User::whereIn('username', $validated['members'] ?? [])
+                ->where('id', '!=', $user->id)
+                ->pluck('id');
+            foreach ($memberIds as $memberId) {
+                $this->addMember($chat, $memberId, 'normal');
+            }
+
+            return $chat;
+        });
+
+        return response()->json([
+            'message' => ucfirst($chat->type) . ' created',
+            'chat' => $this->findFormattedChat($user->id, $chat->id),
+        ], 201);
+    }
+
+    /**
+     * Edit a group / channel.
+     * Admins: name, description. Owner only: slug, is_private, is_readonly.
+     */
+    public function update(Request $req, string $chatId)
+    {
+        $user = $req->user();
+        $chat = $this->findChatOrFail($chatId);
+        abort_if($chat->type === 'direct', 400, 'Direct chats cannot be edited');
+        $member = $this->memberOrFail($user->id, $chat->id);
+        abort_if(!$this->isAdminRole($member->role), 403, 'Only admins can edit this chat');
+
+        $validated = $req->validate([
+            'name' => 'sometimes|required|string|max:255',
+            'description' => 'sometimes|nullable|string|max:512',
+            'slug' => [
+                'sometimes', 'string', 'min:3', 'max:127', 'regex:/^[A-Za-z0-9_-]+$/',
+                'not_in:' . self::RESERVED_SLUGS,
+                Rule::unique('chats', 'slug')->ignore($chat->id),
+                'unique:users,username',
+            ],
+            'is_private' => 'sometimes|boolean',
+            'is_readonly' => 'sometimes|boolean',
+        ]);
+
+        $ownerOnly = array_intersect(array_keys($validated), ['slug', 'is_private', 'is_readonly']);
+        abort_if($ownerOnly && $member->role !== 'owner', 403, 'Only the owner can change the link or privacy');
+
+        if ($chat->type === 'channel') {
+            unset($validated['is_readonly']); // channels stay read-only for normal members
+        }
+
+        // `boolean` accepts "1"/"true"/"on"...; store real booleans
+        foreach (['is_private', 'is_readonly'] as $flag) {
+            if (array_key_exists($flag, $validated)) {
+                $validated[$flag] = $req->boolean($flag);
+            }
+        }
+
+        $chat->forceFill($validated)->save();
+
+        return response()->json([
+            'message' => 'Chat updated',
+            'chat' => $this->findFormattedChat($user->id, $chat->id),
+        ]);
+    }
+
+    /** Admins: issue a new invite link (the old one stops working). */
+    public function regenerateInvite(Request $req, string $chatId)
+    {
+        $user = $req->user();
+        $chat = $this->findChatOrFail($chatId);
+        abort_if($chat->type === 'direct', 400, 'Direct chats have no invite link');
+        $member = $this->memberOrFail($user->id, $chat->id);
+        abort_if(!$this->isAdminRole($member->role), 403, 'Only admins can manage the invite link');
+
+        $chat->forceFill(['invite_code' => Str::random(24)])->save();
+
+        return response()->json([
+            'message' => 'Invite link regenerated',
+            'invite_code' => $chat->invite_code,
+        ]);
+    }
+
+    /* ------------------------------------------------------------------
+     | Discover / join
+     * ----------------------------------------------------------------- */
+
+    protected function publicChatQuery(int $userId)
+    {
+        return Chat::query()
+            ->whereIn('chats.type', ['group', 'channel'])
+            ->where('chats.is_private', false)
+            ->leftJoin('medias as chat_media', function ($join) {
+                $join->on('chat_media.model_id', '=', 'chats.id')
+                    ->where('chat_media.model_type', Chat::class)
+                    ->whereRaw('chat_media.id = (
+                        SELECT MAX(m.id) FROM medias m
+                        WHERE m.model_type = ? AND m.model_id = chats.id
+                    )', [Chat::class]);
+            })
+            ->select([
+                'chats.id', 'chats.name', 'chats.slug', 'chats.type',
+                'chats.description', 'chats.created_at',
+                'chat_media.id as profile_id',
+            ])
+            ->selectSub(function ($q) {
+                $q->from('chat_members as cm')
+                    ->whereColumn('cm.chat_id', 'chats.id')
+                    ->whereNull('cm.deleted_at')
+                    ->selectRaw('COUNT(*)');
+            }, 'members_count')
+            ->selectSub(function ($q) use ($userId) {
+                $q->from('chat_members as me')
+                    ->whereColumn('me.chat_id', 'chats.id')
+                    ->where('me.user_id', $userId)
+                    ->whereNull('me.deleted_at')
+                    ->selectRaw('COUNT(*)');
+            }, 'is_member');
+    }
+
+    protected function formatPublicChat($chat)
+    {
+        $chat->profile_photo = $chat->profile_id
+            ? route('media.public', ['id' => $chat->profile_id, 'thumbnail' => 1])
+            : null;
+        unset($chat->profile_id);
+        $chat->members_count = (int) $chat->members_count;
+        $chat->is_member = (bool) $chat->is_member;
+
+        return $chat;
+    }
+
+    /**
+     * Search public groups / channels.
+     *
+     * @queryParam q string optional Matches name or slug.
+     */
+    public function discover(Request $req)
+    {
+        $req->validate(['q' => 'nullable|string|max:100']);
+        $term = trim((string) $req->query('q', ''));
+
+        $page = $this->publicChatQuery($req->user()->id)
+            ->when($term !== '', function ($query) use ($term) {
+                $like = '%' . addcslashes($term, '%_\\') . '%';
+                $query->where(function ($q) use ($like) {
+                    $q->where('chats.name', 'like', $like)
+                        ->orWhere('chats.slug', 'like', $like);
+                });
+            })
+            ->orderByDesc('chats.created_at')
+            ->simplePaginate(20);
+
+        $page->getCollection()->transform(fn ($chat) => $this->formatPublicChat($chat));
+
+        return $page;
+    }
+
+    /** Info about a public group / channel (also for people who haven't joined yet). */
+    public function preview(Request $req, string $slug)
+    {
+        $chat = $this->publicChatQuery($req->user()->id)
+            ->where('chats.slug', $slug)
+            ->first();
+        abort_if(!$chat, 404, 'chat not found');
+
+        return response()->json(['chat' => $this->formatPublicChat($chat)]);
+    }
+
+    /** Join a public group / channel. Idempotent. */
+    public function join(Request $req, string $chatId)
+    {
+        $user = $req->user();
+        $chat = $this->findChatOrFail($chatId);
+        abort_if($chat->type === 'direct', 400, 'Direct chats cannot be joined');
+        abort_if($chat->is_private, 403, 'This chat is private, you need an invite link');
+
+        $joined = $this->addMember($chat, $user->id);
+
+        return response()->json([
+            'message' => $joined ? 'You joined the ' . $chat->type : 'You are already a member',
+            'chat' => $this->findFormattedChat($user->id, $chat->id),
+        ]);
+    }
+
+    /** Join a (private or public) group / channel with its invite link. Idempotent. */
+    public function joinByInvite(Request $req, string $inviteCode)
+    {
+        $user = $req->user();
+        $chat = Chat::query()
+            ->where('invite_code', $inviteCode)
+            ->whereIn('type', ['group', 'channel'])
+            ->first();
+        abort_if(!$chat, 404, 'invite link is invalid or expired');
+
+        $joined = $this->addMember($chat, $user->id);
+
+        return response()->json([
+            'message' => $joined ? 'You joined the ' . $chat->type : 'You are already a member',
+            'chat' => $this->findFormattedChat($user->id, $chat->id),
+        ]);
+    }
+
+    /* ------------------------------------------------------------------
+     | Delete / leave / clear
+     * ----------------------------------------------------------------- */
 
     public function destroy(Request $req, string $chatId)
     {
@@ -236,28 +564,26 @@ class ChatController extends Controller
         if (!$chat) {
             return response()->json(['message' => 'Chat not found'], 404);
         }
-        $currentUserMemberRow = $chat->members()->where('user_id', $currentUser->id)->first();
+        $currentUserMemberRow = $this->memberOf($currentUser->id, $chat->id);
         if (!$currentUserMemberRow) {
             return response()->json(['message' => 'You are not a member of this chat'], 403);
         }
         $deleteForEveryone = $req->boolean('delete_for_everyone', false);
+        $isGroupLike = $chat->type !== 'direct';
 
         // ==========================================
         // SCENARIO A: DELETE / DESTROY FOR EVERYONE
         // ==========================================
         if ($deleteForEveryone) {
-            // If it's a group chat, ensure user is owner
-            if ($chat->type === 'group') {
-                $role = $currentUserMemberRow->role;
-                if (!in_array($role, ['owner'])) {
-                    return response()->json(['message' => 'Only owner can delete group chats for everyone.'], 403);
-                }
+            // groups & channels can only be destroyed by their owner
+            if ($isGroupLike && $currentUserMemberRow->role !== 'owner') {
+                return response()->json(['message' => 'Only the owner can delete a ' . $chat->type . ' for everyone.'], 403);
             }
             // Soft delete all messages in the chat globally
             $chat->messages()->delete();
             // Soft delete the chat globally
             $chat->delete();
-            // delete chat member for current user so it doesn't appear in users chat list
+            // delete chat members so it doesn't appear in anyone's chat list
             ChatMembers::query()->where([
                 'chat_id' => $chat->id,
             ])->update(['deleted_at' => now()]);
@@ -269,15 +595,14 @@ class ChatController extends Controller
         // ==========================================
         // SCENARIO B: DELETE "JUST FOR ME"
         // ==========================================
-        if ($chat->type === 'group') {
-            $role = $currentUserMemberRow->role;
-            if (in_array($role, ['owner'])) {
-                return response()->json(['message' => 'Owner cant leave the group!'], 403);
+        if ($isGroupLike) {
+            if ($currentUserMemberRow->role === 'owner') {
+                return response()->json(['message' => 'The owner cant leave. Delete the ' . $chat->type . ' instead.'], 403);
             }
-            // For groups, "deleting for me" means leaving the group entirely
-            $chat->members()->detach($currentUser->id);
+            // For groups & channels, "deleting for me" means leaving entirely
+            $this->removeMember($chat->id, $currentUser->id);
             return response()->json([
-                'message' => 'You have left the group chat.',
+                'message' => 'You have left the ' . $chat->type . '.',
             ], 200);
         }
 
@@ -290,10 +615,7 @@ class ChatController extends Controller
             'cleared_at' => now(), // Marks the point from which past messages are hidden for this user
         ]);
         // delete chat member for current user so it doesn't appear in users chat list
-        ChatMembers::query()->where([
-            'user_id' => $currentUser->id,
-            'chat_id' => $chat->id,
-        ])->update(['deleted_at' => now()]);
+        $this->removeMember($chat->id, $currentUser->id);
 
         return response()->json([
             'message' => 'Chat removed from your list and history cleared.',
@@ -311,12 +633,12 @@ class ChatController extends Controller
         if (!$chat) {
             return response()->json(['message' => 'Chat not found'], 404);
         }
-        $currentUserMemberRow = $chat->members()->where('user_id', $currentUser->id)->first();
+        $currentUserMemberRow = $this->memberOf($currentUser->id, $chat->id);
         if (!$currentUserMemberRow) {
             return response()->json(['message' => 'You are not a member of this chat'], 403);
         }
-        if ($chat->type === 'group') {
-            return response()->json(['message' => 'Cant clear history of groups'], 403);
+        if ($chat->type !== 'direct') {
+            return response()->json(['message' => 'Cant clear history of groups or channels'], 403);
         }
         $deleteForEveryone = $req->boolean('delete_for_everyone', false);
         if ($deleteForEveryone) {
@@ -338,6 +660,10 @@ class ChatController extends Controller
         ], 200);
     }
 
+    /* ------------------------------------------------------------------
+     | Per-user chat settings (work for every chat type)
+     * ----------------------------------------------------------------- */
+
     /**
      * Toggle or set pin status for a chat.
      */
@@ -347,10 +673,10 @@ class ChatController extends Controller
         $req->validate([
             'is_pinned' => 'required|boolean',
         ]);
-        $chat = Chat::find($chatId);
+        $chat = $this->findChatOrFail($chatId);
         $this->verifyChatMembership($userId, $chat->id);
 
-        $setting = \App\Models\ChatUserSetting::updateOrCreate(
+        $setting = ChatUserSetting::updateOrCreate(
             ['user_id' => $userId, 'chat_id' => $chat->id],
             ['is_pinned' => $req->boolean('is_pinned')]
         );
@@ -372,14 +698,14 @@ class ChatController extends Controller
         $req->validate([
             'duration' => 'nullable|in:' . implode(',', array_keys(self::$muteDurations)),
         ]);
-        $chat = Chat::find($chatId);
+        $chat = $this->findChatOrFail($chatId);
         $this->verifyChatMembership($userId, $chat->id);
         $mutedUntil = null;
         if ($req->duration && $req->duration != 'forever') {
             $mutedUntil = now()->addMinutes(self::$muteDurations[$req->duration]);
         }
 
-        $setting = \App\Models\ChatUserSetting::updateOrCreate(
+        $setting = ChatUserSetting::updateOrCreate(
             ['user_id' => $userId, 'chat_id' => $chat->id],
             ['is_muted' => $req->duration !== null, 'muted_until' => $mutedUntil]
         );
@@ -400,10 +726,10 @@ class ChatController extends Controller
         $req->validate([
             'is_archived' => 'required|boolean',
         ]);
-        $chat = Chat::find($chatId);
+        $chat = $this->findChatOrFail($chatId);
         $this->verifyChatMembership($userId, $chat->id);
 
-        $setting = \App\Models\ChatUserSetting::updateOrCreate(
+        $setting = ChatUserSetting::updateOrCreate(
             ['user_id' => $userId, 'chat_id' => $chat->id],
             ['is_archived' => $req->boolean('is_archived')]
         );
@@ -420,8 +746,7 @@ class ChatController extends Controller
     public function markAsReadChat(Request $req, string $chatId)
     {
         $userId = $req->user()->id;
-        $chat = Chat::find($chatId);
-        abort_if(!$chat, 404, 'chat not found');
+        $chat = $this->findChatOrFail($chatId);
         $this->verifyChatMembership($userId, $chat->id);
 
         $userSetting = ChatUserSetting::query()->firstOrCreate([
@@ -443,14 +768,15 @@ class ChatController extends Controller
     {
         $userId = $req->user()->id;
         $validated = $req->validate([
-            'draft' => 'required|string|max:1024',
+            // nullable: sending null clears the draft
+            'draft' => 'nullable|string|max:1024',
         ]);
-        $chat = Chat::find($chatId);
+        $chat = $this->findChatOrFail($chatId);
         $this->verifyChatMembership($userId, $chat->id);
 
-        $setting = \App\Models\ChatUserSetting::updateOrCreate(
+        $setting = ChatUserSetting::updateOrCreate(
             ['user_id' => $userId, 'chat_id' => $chat->id],
-            ['draft' => $validated['draft']] // Can be string or null
+            ['draft' => $validated['draft'] ?? null]
         );
 
         return response()->json([
@@ -464,10 +790,6 @@ class ChatController extends Controller
      */
     protected function verifyChatMembership(int $userId, int $chatId)
     {
-        $isMember = ChatMembers::where('chat_id', $chatId)
-            ->where('user_id', $userId)
-            ->exists();
-
-        abort_if(!$isMember, 403, 'Not Allowed');
+        $this->memberOrFail($userId, $chatId);
     }
 }
