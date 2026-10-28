@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, nextTick } from 'vue';
+import { computed, ref } from 'vue';
 import { useModalControl } from '@/composables/useModalControl';
+import { useConfirm } from '@/composables/useConfirm';
+import useChatStore from '@/stores/chat';
+import useContactStore from '@/stores/contact';
 import Modal from '@/components/common/Modal.vue';
 import CloseIcon from '@/assets/svgs/Close.svg';
 import MailIcon from '@/assets/svgs/Mail.svg';
@@ -8,24 +11,44 @@ import TextSearchIcon from '@/assets/svgs/TextSearch.svg';
 import CalenderRangeIcon from '@/assets/svgs/CalenderRange.svg';
 import CalenderPlusIcon from '@/assets/svgs/CalenderPlus.svg';
 import BellIcon from '@/assets/svgs/Bell.svg';
+import BellSlashIcon from '@/assets/svgs/BellSlash.svg';
 import BookUserIcon from '@/assets/svgs/BookUser.svg';
-import UsersIcon from '@/assets/svgs/Users.svg'
+import UsersIcon from '@/assets/svgs/Users.svg';
 import UserPlusIcon from '@/assets/svgs/UserPlus.svg';
 import UserMinusIcon from '@/assets/svgs/UserMinus.svg';
 import UserIcon from '@/assets/svgs/User.svg';
 import Avatar from '../chat/Avatar.vue';
 import type { Chat, User } from '@/types';
-import { getChatBySlug } from '@/api/index.ts';
+import { getChatBySlug, setChatMute, clearChatHistory, deleteChat } from '@/api/index.ts';
 import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
+import router from '@/router';
 
+const emit = defineEmits<{
+    (e: 'openEditContactModal', username: string, name?: string | null, editing?: boolean): void;
+}>();
 
 const { modal, open: modalOpen, close, toggle, isOpen } = useModalControl();
+const chatStore = useChatStore();
+const contactStore = useContactStore();
+const { confirm } = useConfirm();
 
 const chatSlug = ref<string | null>(null);
 const chat = ref<Chat | null>(null);
 const user = ref<User | null>(null);
 const isLoading = ref<boolean>(true);
 const profileImageGallery = ref<InstanceType<typeof ProfileImageGallery> | null>(null);
+
+const isContact = computed(() => {
+    const username = user.value?.username || (chat.value?.type === 'direct' ? chat.value?.slug : null);
+    if (!username) return false;
+    return contactStore.contacts?.some((c) => c.user.username === username);
+});
+
+const contactItem = computed(() => {
+    const username = user.value?.username || (chat.value?.type === 'direct' ? chat.value?.slug : null);
+    if (!username) return null;
+    return contactStore.contacts?.find((c) => c.user.username === username) || null;
+});
 
 async function LoadChat() {
     if (!chatSlug.value) return;
@@ -35,7 +58,7 @@ async function LoadChat() {
         const res = await getChatBySlug(chatSlug.value);
         chat.value = res.chat;
         user.value = res.user;
-        if (chat.value == null && user.value) {
+        if (chat.value == null ) {
             chat.value = <Chat>{
                 slug: user.value.username,
                 type: 'direct',
@@ -46,9 +69,12 @@ async function LoadChat() {
     }
 }
 
-
 function open(slug: string, c: Chat | null): void {
     if (!slug) return;
+
+    if (contactStore.contacts === null) {
+        contactStore.loadContacts();
+    }
 
     profileImageGallery.value?.destroyPhotoSwipe();
     chat.value = c;
@@ -95,23 +121,106 @@ function handleSearch(): void {
 }
 
 function handleAddToContact(): void {
-    console.log('AddToContact conversation:', chat.value?.id);
+    const username = user.value?.username || chat.value?.slug;
+    if (!username) return;
+    emit('openEditContactModal', username, user.value?.name || chat.value?.name, false);
 }
 
 function handleEditContact(): void {
-    console.log('EditContact conversation:', chat.value?.id);
+    const username = user.value?.username || chat.value?.slug;
+    if (!username) return;
+    emit('openEditContactModal', username, contactItem.value?.name || user.value?.name, true);
 }
 
-function handleRemoveFromContact(): void {
-    console.log('RemoveFromContact conversation:', chat.value?.id);
+async function handleRemoveFromContact(): void {
+    const username = user.value?.username || chat.value?.slug;
+    if (!username) return;
+
+    const confirmed = await confirm({
+        title: 'Delete Contact',
+        message: `Are you sure you want to delete ${username} from your contacts?`,
+        confirmText: 'Delete',
+        variant: 'danger',
+    });
+
+    if (!confirmed) return;
+
+    try {
+        await contactStore.removeContact(username);
+    } catch (error) {
+        console.error('Failed to remove contact', error);
+    }
 }
 
-function handleMute(): void {
-    console.log('Mute chat:', chat.value?.id);
+async function handleToggleMute(): void {
+    console.log('profile handleToggleMute', chat.value);
+    if (!chat.value?.id) return;
+    console.log('profile handleToggleMute');
+    try {
+        const newMuted = !chat.value.muted;
+        const duration = newMuted ? 'forever' : null;
+        const res = await setChatMute(chat.value.id, duration);
+        chat.value.muted = res.muted;
+        chat.value.muted_until = res.muted_until;
+
+        const storeChat = chatStore.chatList?.find((c) => c.id === chat.value?.id);
+        if (storeChat) {
+            storeChat.muted = res.muted;
+            storeChat.muted_until = res.muted_until;
+        }
+    } catch (error) {
+        console.error('Failed to toggle mute status', error);
+    }
 }
 
-function handleClearChat(): void {
-    console.log('Clear chat:', chat.value?.id);
+async function handleClearChat(): void {
+    if (!chat.value?.id) return;
+    const res = await confirm({
+        title: 'Clear Chat History',
+        message: `Are you sure you want to clear the history for ${chat.value.name || chat.value.slug}?`,
+        confirmText: 'Clear',
+        variant: 'warning',
+        checkboxLabel: chat.value.type === 'direct' ? undefined : 'Delete messages for everyone',
+    });
+
+    const confirmed = typeof res === 'boolean' ? res : res.confirmed;
+    const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
+
+    if (!confirmed) return;
+
+    try {
+        await clearChatHistory(chat.value.id, deleteForEveryone);
+    } catch (error) {
+        console.error('Failed to clear history', error);
+    }
+}
+
+async function handleDeleteChat(): void {
+    if (!chat.value?.id) return;
+    const res = await confirm({
+        title: 'Delete Chat',
+        message: `Are you sure you want to delete the chat with ${chat.value.name || chat.value.slug}?`,
+        confirmText: 'Delete',
+        variant: 'danger',
+        checkboxLabel: 'Delete for everyone',
+    });
+
+    const confirmed = typeof res === 'boolean' ? res : res.confirmed;
+    const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
+
+    if (!confirmed) return;
+
+    try {
+        const chatId = chat.value.id;
+        await deleteChat(chatId, deleteForEveryone);
+        chatStore.removeChat(chatId);
+        if (chatStore.currentChat?.id == chatId) {
+            router.push('/');
+        }
+        close();
+    } catch (error) {
+        console.error('Failed to delete chat', error);
+    }
 }
 
 function handleLeaveChat(): void {
@@ -122,16 +231,12 @@ function handleBlockUser(): void {
     console.log('Block user:', chat.value?.direct_user_id);
 }
 
-// onUnmounted(() => {
-// });
-
 defineExpose({
     open,
     close,
     toggle,
     isOpen,
 });
-
 </script>
 
 <template>
@@ -147,11 +252,9 @@ defineExpose({
 
             <!-- Header -->
             <div class="flex flex-col items-center px-6 pt-8 pb-5 border-b border-white/10">
-                <!-- Avatar: click loads all profile photos and opens the gallery -->
                 <button type="button" @click="handleAvatarClick"
                     class="block rounded-full overflow-hidden focus:outline-none"
-                    :class="{ 'cursor-pointer': chat?.profile_photo != null }"
-                    aria-label="View profile photos">
+                    :class="{ 'cursor-pointer': chat?.profile_photo != null }" aria-label="View profile photos">
                     <Avatar class="w-20 h-20 pointer-events-none"
                         :src="chat?.profile_photo || '/storage/default-profile.png'" />
                 </button>
@@ -160,14 +263,12 @@ defineExpose({
                     {{ chat?.name || user?.name || '...' }}
                 </h2>
 
-                <!-- Direct chat -->
                 <template v-if="chat?.type === 'direct'">
                     <p class="mt-1 text-sm text-gray-500">
                         @{{ chatSlug }}
                     </p>
                 </template>
 
-                <!-- Group chat -->
                 <template v-else-if="chat?.type === 'group'">
                     <p class="mt-1 text-sm text-gray-500">
                         {{ chat.slug ? `@${chat.slug}` : 'Group Chat' }}
@@ -357,36 +458,41 @@ defineExpose({
                             Search in conversation
                         </button>
 
-                        <button v-if="chat?.type === 'direct'" type="button" @click="handleAddToContact"
-                            class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                            <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
-                                <UserPlusIcon class="stroke-gray-400 size-5" />
-                            </span>
-                            Add to Contact
-                        </button>
+                        <template v-if="chat?.type === 'direct'">
+                            <button v-if="!isContact" type="button" @click="handleAddToContact"
+                                class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                                <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
+                                    <UserPlusIcon class="stroke-gray-400 size-5" />
+                                </span>
+                                Add to Contact
+                            </button>
 
-                        <button v-if="chat?.type === 'direct'" type="button" @click="handleEditContact"
-                            class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                            <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
-                                <UserIcon class="stroke-gray-400 size-5" />
-                            </span>
-                            Edit Contact
-                        </button>
+                            <template v-else>
+                                <button type="button" @click="handleEditContact"
+                                    class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                                    <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
+                                        <UserIcon class="stroke-gray-400 size-5" />
+                                    </span>
+                                    Edit Contact
+                                </button>
 
-                        <button v-if="chat?.type === 'direct'" type="button" @click="handleRemoveFromContact"
-                            class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                            <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
-                                <UserMinusIcon class="stroke-gray-400 size-5" />
-                            </span>
-                            Remove from Contact
-                        </button>
+                                <button type="button" @click="handleRemoveFromContact"
+                                    class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                                    <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
+                                        <UserMinusIcon class="stroke-gray-400 size-5" />
+                                    </span>
+                                    Remove from Contact
+                                </button>
+                            </template>
+                        </template>
 
-                        <button type="button" @click="handleMute"
+                        <button type="button" @click="handleToggleMute"
                             class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                             <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
-                                <BellIcon class="stroke-gray-400 size-5" />
+                                <BellIcon v-if="!chat?.muted" class="stroke-gray-400 size-5" />
+                                <BellSlashIcon v-else class="stroke-gray-400 size-5" />
                             </span>
-                            Mute notifications
+                            {{ chat?.muted ? 'Unmute notifications' : 'Mute notifications' }}
                         </button>
                     </div>
                 </section>
@@ -399,6 +505,11 @@ defineExpose({
                             Clear chat
                         </button>
 
+                        <button type="button" @click="handleDeleteChat"
+                            class="w-full cursor-pointer mt-2 px-4 py-3 rounded-xl text-sm text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 transition-colors">
+                            Delete chat
+                        </button>
+
                         <button type="button" @click="handleBlockUser"
                             class="w-full cursor-pointer mt-2 px-4 py-3 rounded-xl text-sm text-red-400 hover:bg-red-500/5 transition-colors">
                             Block user
@@ -406,8 +517,18 @@ defineExpose({
                     </template>
 
                     <template v-else-if="chat?.type === 'group'">
-                        <button type="button" @click="handleLeaveChat"
+                        <button type="button" @click="handleClearChat"
                             class="w-full cursor-pointer px-4 py-3 rounded-xl text-sm text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 transition-colors">
+                            Clear chat
+                        </button>
+
+                        <button type="button" @click="handleDeleteChat"
+                            class="w-full cursor-pointer mt-2 px-4 py-3 rounded-xl text-sm text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 transition-colors">
+                            Delete chat
+                        </button>
+
+                        <button type="button" @click="handleLeaveChat"
+                            class="w-full cursor-pointer mt-2 px-4 py-3 rounded-xl text-sm text-red-400 hover:bg-red-500/5 transition-colors">
                             Leave group
                         </button>
                     </template>

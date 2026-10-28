@@ -86,11 +86,7 @@ router.onError((e) => console.error('router error', e));
         </Transition>
     </div>
 
-    <EditContactModal ref="editContactModalRef" @open-contacts="(c) => {
-        editContactModalRef?.close();
-        addContactModalRef?.open();
-        addContactModalRef?.saveContact(c);
-    }" />
+    <EditContactModal ref="editContactModalRef" />
     
     <AddContactModal ref="addContactModalRef" @open-direct-chat="(username) => {
         addContactModalRef?.close();
@@ -98,7 +94,7 @@ router.onError((e) => console.error('router error', e));
     }" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)" />
 
 
-    <ProfileModal ref="profileModalRef" />
+    <ProfileModal ref="profileModalRef" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)"  />
 
     <Modal ref="settingModalRef">
         <SettingModal />
