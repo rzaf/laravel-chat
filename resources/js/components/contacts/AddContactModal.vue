@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { onKeyStroke, useDebounceFn } from '@vueuse/core';
+import { useDebounceFn } from '@vueuse/core';
 import { useModalControl } from '@/composables/useModalControl';
 import { useFormErrors } from '@/composables/useFormErrors';
 import { useContextMenu } from '@/composables/useContextMenu';
 import { useConfirm } from '@/composables/useConfirm';
+import useContactStore from '@/stores/contact';
 import Modal from '@/components/common/Modal.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import type { Contact, User } from '@/types';
 import ContactItem from './ContactItem.vue';
-import { searchUsers as apiSearchUsers, deleteContact as apiDeleteContact, addOrUpdateContact, getContacts } from '@/api';
+import { searchUsers as apiSearchUsers, addOrUpdateContact } from '@/api';
 import CloseIcon from '@/assets/svgs/Close.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
 import CheckIcon from '@/assets/svgs/Check.svg';
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const { modal, open, close, toggle, isOpen } = useModalControl();
 const { errors, setFromError, clear } = useFormErrors(['username', 'name']);
+const contactStore = useContactStore();
 
 /* ---------- shared context menu state ---------- */
 const { isOpen: isContextMenuOpen, x, y, open: openContextMenu, close: closeContextMenu } = useContextMenu();
@@ -57,7 +59,7 @@ async function handleDelete(contact: Contact) {
     handleCloseMenu();
     const isConfirmed = await confirm(`Are you sure you want to delete ${contact.user.username}?`);
     if (isConfirmed) {
-        await removeContact(contact.user.username);
+        await contactStore.removeContact(contact.user.username);
     }
 }
 
@@ -96,22 +98,7 @@ const isSearching = ref(false);
 const isAddingContact = ref(false);
 let searchId = 0;
 
-const contacts = ref<Contact[]>([]);
-
-/** Insert or update a contact after it is saved elsewhere. */
-function saveContact(contact: Contact): void {
-    const index = contacts.value.findIndex((c) => c.user.username === contact.user.username);
-    if (index === -1) {
-        contacts.value.push(contact);
-    } else {
-        contacts.value[index].name = contact.name;
-    }
-}
-
-async function removeContact(username: string): Promise<void> {
-    await apiDeleteContact(username);
-    contacts.value = contacts.value.filter((c) => c.user.username !== username);
-}
+const contacts = computed(() => contactStore.contacts ?? []);
 
 // search in user contacts
 const filteredContacts = computed(() => {
@@ -122,10 +109,10 @@ const filteredContacts = computed(() => {
     }
 
     return contacts.value.filter((contact) => {
-        const name = contact.name?.toLowerCase() ?? '';
+        const contactName = contact.name?.toLowerCase() ?? '';
         const username = contact.user.username.toLowerCase();
 
-        return name.includes(search) || username.includes(search);
+        return contactName.includes(search) || username.includes(search);
     });
 });
 
@@ -138,12 +125,12 @@ const hasNoResults = computed(
 const hasNoContactsYet = computed(() => userName.value === '' && contacts.value.length === 0);
 
 onMounted(async () => {
-    contacts.value = (await getContacts()).data;
+    if (contactStore.contacts === null) {
+        await contactStore.loadContacts();
+    }
 });
 
 const onSearch = useDebounceFn((event: Event) => {
-    const target = event.target as HTMLInputElement;
-
     currentPage.value = 1;
     selectedUserName.value = '';
     searchedUsers.value = [];
@@ -153,7 +140,7 @@ const onSearch = useDebounceFn((event: Event) => {
 async function searchUsers(searchTerm: string) {
     const id = ++searchId;
     if (searchTerm === '') {
-        gotAllPages.value = true; // disabling show more button
+        gotAllPages.value = true;
         isSearching.value = false;
         return;
     }
@@ -192,7 +179,7 @@ async function addContact(): Promise<void> {
         searchedUsers.value = [];
         gotAllPages.value = true;
         isSearching.value = false;
-        saveContact(res);
+        contactStore.saveContact(res);
         emit('openDirectChat', res.user.username);
     } catch (err: unknown) {
         setFromError(err);
@@ -207,7 +194,13 @@ function clearSelection(): void {
     clear();
 }
 
-defineExpose({ open, close, toggle, isOpen, saveContact });
+defineExpose({
+    open,
+    close,
+    toggle,
+    isOpen,
+    saveContact: contactStore.saveContact,
+});
 </script>
 
 <template>
@@ -242,79 +235,94 @@ defineExpose({ open, close, toggle, isOpen, saveContact });
 
             <!-- Scrollable content -->
             <div class="flex flex-col flex-1 min-h-0 px-3 pb-2 overflow-y-auto scrollable">
-                <!-- Your contacts -->
-                <section v-if="filteredContacts.length > 0">
-                    <h3
-                        class="px-2 pt-1 pb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
-                        {{ userName ? 'In your contacts' : 'Your contacts' }}
-                    </h3>
-                    <ContactItem v-for="contact in filteredContacts" :key="contact.user.username" :contact="contact"
-                        :is-menu-open="activeMenuContact?.user.username === contact.user.username"
-                        @close-contacts-modals="close"
-                        @open-edit-contact-modal="(username, name) => emit('openEditContactModal', username, name)"
-                        @delete-contact="removeContact" @open-menu="handleOpenMenu" />
-                </section>
-
-                <!-- Empty: no contacts yet -->
-                <div v-if="hasNoContactsYet" class="flex flex-col items-center gap-1 px-6 py-12 text-center">
-                    <p class="font-medium text-gray-800 dark:text-gray-100">No contacts yet</p>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">Search for a name or username above to add
-                        someone.</p>
-                </div>
-
-                <!-- Search results (people you can add) -->
-                <section v-if="searchedUsers.length > 0 || isSearching" class="mt-2">
-                    <h3
-                        class="px-2 pt-1 pb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
-                        People you can add
-                    </h3>
-
-                    <button v-for="u in searchedUsers" :key="u.username" type="button"
-                        :aria-pressed="selectedUserName === u.username"
-                        class="flex items-center w-full gap-3 px-2 py-2.5 text-left transition-colors rounded-xl ring-2 ring-transparent outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                        :class="selectedUserName === u.username
-                            ? 'bg-blue-100 ring-blue-500 dark:bg-blue-500/15'
-                            : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                            " @click="selectedUserName = u.username!">
-                        <Avatar class="size-12 shrink-0" :src="u.profile_photo || '/storage/default-profile.png'" />
-                        <span class="flex flex-col flex-1 min-w-0">
-                            <span class="text-base font-medium text-gray-900 truncate dark:text-gray-100">
-                                {{ u.name || '' }}
-                            </span>
-                            <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ u.username }}</span>
-                        </span>
-                        <CheckIcon v-if="selectedUserName === u.username"
-                            class="text-blue-600 size-5 shrink-0 dark:text-blue-400" />
-                    </button>
-
-                    <!-- Skeletons while searching -->
-                    <template v-if="isSearching">
-                        <div v-for="n in 3" :key="n" class="flex items-center gap-3 px-2 py-2.5" aria-hidden="true">
-                            <div class="bg-gray-100 rounded-full size-12 shrink-0 dark:bg-gray-700 animate-pulse"></div>
-                            <div class="flex-1 space-y-2">
-                                <div class="w-2/5 h-4 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
-                                <div class="w-3/5 h-3 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
-                            </div>
+                <!-- Loading skeleton -->
+                <template v-if="contactStore.isLoading">
+                    <div v-for="n in 6" :key="n" class="flex items-center w-full gap-3 px-3 py-3" aria-hidden="true">
+                        <div class="bg-gray-100 rounded-full size-12 shrink-0 dark:bg-gray-700 animate-pulse"></div>
+                        <div class="flex-1 space-y-2">
+                            <div class="w-2/5 h-4 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
+                            <div class="w-4/5 h-3.5 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
                         </div>
-                    </template>
-                </section>
+                    </div>
+                </template>
 
-                <!-- No results -->
-                <div v-if="hasNoResults" class="px-6 py-12 text-center">
-                    <p class="font-medium text-gray-800 dark:text-gray-100">No results</p>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        Nothing found for “{{ userName }}”. Check the spelling or try a username.
-                    </p>
-                </div>
+                <template v-else>
+                    <!-- Your contacts -->
+                    <section v-if="filteredContacts.length > 0">
+                        <h3
+                            class="px-2 pt-1 pb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
+                            {{ userName ? 'In your contacts' : 'Your contacts' }}
+                        </h3>
+                        <ContactItem v-for="contact in filteredContacts" :key="contact.user.username" :contact="contact"
+                            :is-menu-open="activeMenuContact?.user.username === contact.user.username"
+                            @close-contacts-modals="close"
+                            @open-edit-contact-modal="(username, name) => emit('openEditContactModal', username, name)"
+                            @delete-contact="(username) => contactStore.removeContact(username)"
+                            @open-menu="handleOpenMenu" />
+                    </section>
 
-                <!-- Load more -->
-                <div v-show="!isSearching && !gotAllPages" class="flex justify-center py-3">
-                    <button type="button"
-                        class="px-4 py-1.5 text-sm font-medium text-blue-600 rounded-full hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-gray-700"
-                        @click="currentPage++; searchUsers(userName)">
-                        Load more
-                    </button>
-                </div>
+                    <!-- Empty: no contacts yet -->
+                    <div v-if="hasNoContactsYet" class="flex flex-col items-center gap-1 px-6 py-12 text-center">
+                        <p class="font-medium text-gray-800 dark:text-gray-100">No contacts yet</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Search for a name or username above to add
+                            someone.</p>
+                    </div>
+
+                    <!-- Search results (people you can add) -->
+                    <section v-if="searchedUsers.length > 0 || isSearching" class="mt-2">
+                        <h3
+                            class="px-2 pt-1 pb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
+                            People you can add
+                        </h3>
+
+                        <button v-for="u in searchedUsers" :key="u.username" type="button"
+                            :aria-pressed="selectedUserName === u.username"
+                            class="flex items-center w-full gap-3 px-2 py-2.5 text-left transition-colors rounded-xl ring-2 ring-transparent outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                            :class="selectedUserName === u.username
+                                ? 'bg-blue-100 ring-blue-500 dark:bg-blue-500/15'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                                " @click="selectedUserName = u.username!">
+                            <Avatar class="size-12 shrink-0" :src="u.profile_photo || '/storage/default-profile.png'" />
+                            <span class="flex flex-col flex-1 min-w-0">
+                                <span class="text-base font-medium text-gray-900 truncate dark:text-gray-100">
+                                    {{ u.name || '' }}
+                                </span>
+                                <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ u.username }}</span>
+                            </span>
+                            <CheckIcon v-if="selectedUserName === u.username"
+                                class="text-blue-600 size-5 shrink-0 dark:text-blue-400" />
+                        </button>
+
+                        <!-- Skeletons while searching -->
+                        <template v-if="isSearching">
+                            <div v-for="n in 3" :key="n" class="flex items-center gap-3 px-2 py-2.5" aria-hidden="true">
+                                <div class="bg-gray-100 rounded-full size-12 shrink-0 dark:bg-gray-700 animate-pulse">
+                                </div>
+                                <div class="flex-1 space-y-2">
+                                    <div class="w-2/5 h-4 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
+                                    <div class="w-3/5 h-3 bg-gray-100 rounded dark:bg-gray-700 animate-pulse"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+
+                    <!-- No results -->
+                    <div v-if="hasNoResults" class="px-6 py-12 text-center">
+                        <p class="font-medium text-gray-800 dark:text-gray-100">No results</p>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            Nothing found for “{{ userName }}”. Check the spelling or try a username.
+                        </p>
+                    </div>
+
+                    <!-- Load more -->
+                    <div v-show="!isSearching && !gotAllPages" class="flex justify-center py-3">
+                        <button type="button"
+                            class="px-4 py-1.5 text-sm font-medium text-blue-600 rounded-full hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-gray-700"
+                            @click="currentPage++; searchUsers(userName)">
+                            Load more
+                        </button>
+                    </div>
+                </template>
             </div>
 
             <!-- Add footer: appears once someone is selected -->
