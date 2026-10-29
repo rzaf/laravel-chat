@@ -1,5 +1,16 @@
 import { apiClient, publicClient } from '@/api/client';
-import type { Attachment, Chat, Contact, Message, MuteDuration, User } from '@/types';
+import type {
+    Attachment,
+    Chat,
+    ChatMember,
+    ChatRole,
+    ChatType,
+    Contact,
+    Message,
+    MuteDuration,
+    PublicChat,
+    User,
+} from '@/types';
 import type {
     AuthResponse,
     BroadcastAuthResponse,
@@ -8,6 +19,7 @@ import type {
     Paginated,
     ResourceCollectionPaginated,
     RegisterPayload,
+    CreateChatPayload,
     ApiResponse,
 } from '@/types/api';
 
@@ -69,6 +81,98 @@ export async function clearChatHistory(chatId: number, deleteForEveryone?: boole
     return data;
 }
 
+/* ---------------------------------------------- groups & channels (chats) */
+
+type ChatResponse = { message: string; chat: Chat | null };
+
+export async function createChat(payload: CreateChatPayload): Promise<Chat> {
+    const { data } = await apiClient.post<ChatResponse>('/api/chats', payload);
+    return data.chat as Chat;
+}
+
+export async function updateChat(
+    chatId: number,
+    payload: Partial<Pick<Chat, 'name' | 'description' | 'slug' | 'is_private' | 'is_readonly'>>,
+): Promise<Chat> {
+    const { data } = await apiClient.put<ChatResponse>(`/api/chats/${chatId}`, payload);
+    return data.chat as Chat;
+}
+
+/** Search public groups / channels (paginated, 20 per page). */
+export async function searchPublicChats(q = '', page = 1): Promise<Paginated<PublicChat>> {
+    const { data } = await apiClient.get<Paginated<PublicChat>>('/api/chats/public', {
+        params: { q: q || undefined, page },
+    });
+    return data;
+}
+
+/** Info about a public chat the user may not have joined yet. */
+export async function getPublicChat(slug: string): Promise<PublicChat> {
+    const { data } = await apiClient.get<{ chat: PublicChat }>(`/api/chats/public/${slug}`);
+    return data.chat;
+}
+
+export async function joinChat(chatId: number): Promise<Chat> {
+    const { data } = await apiClient.post<ChatResponse>(`/api/chats/${chatId}/join`);
+    return data.chat as Chat;
+}
+
+export async function joinChatByInvite(inviteCode: string): Promise<Chat> {
+    const { data } = await apiClient.post<ChatResponse>(`/api/chats/join/${inviteCode}`);
+    return data.chat as Chat;
+}
+
+export async function regenerateInviteLink(chatId: number): Promise<string> {
+    const { data } = await apiClient.post<{ invite_code: string }>(`/api/chats/${chatId}/invite-link`);
+    return data.invite_code;
+}
+
+export async function getChatContactMemberUsernames(chatId: number): Promise<string[]> {
+    const { data } = await apiClient.get<string[]>(`/api/chats/${chatId}/membersInTheContact`);
+    return data ?? [];
+}
+
+// export async function getChatMembers(chatId: number, page = 1): Promise<ResourceCollectionPaginated<ChatMember>> {
+//     const { data } = await apiClient.get<ResourceCollectionPaginated<ChatMember>>(`/api/chats/${chatId}/members`, {
+//         params: page > 1 ? { page } : undefined,
+//     });
+//     return data;
+// }
+export async function getChatMembers(chatId: number, page = 1, params?: { role?: string; sort?: string; direction?: string }): Promise<ResourceCollectionPaginated<ChatMember>> {
+    const { data } = await apiClient.get<ResourceCollectionPaginated<ChatMember>>(`/api/chats/${chatId}/members`, {
+        params: {
+            page: page > 1 ? page : undefined,
+            role: params?.role && params.role !== 'all' ? params.role : undefined,
+            sort: params?.sort,
+            direction: params?.direction,
+        },
+    });
+    return data;
+}
+
+export async function addChatMembers(
+    chatId: number,
+    usernames: string[],
+): Promise<{ added: string[]; already_members: string[] }> {
+    const { data } = await apiClient.post<{ added: string[]; already_members: string[] }>(
+        `/api/chats/${chatId}/members`,
+        { usernames },
+    );
+    return data;
+}
+
+export async function setChatMemberRole(
+    chatId: number,
+    userId: number,
+    role: Exclude<ChatRole, 'owner'>,
+): Promise<void> {
+    await apiClient.put(`/api/chats/${chatId}/members/${userId}`, { role });
+}
+
+export async function removeChatMember(chatId: number, userId: number): Promise<void> {
+    await apiClient.delete(`/api/chats/${chatId}/members/${userId}`);
+}
+
 /* ----------------------------------------------------------- broadcasting */
 
 export async function broadcastAuthorize(
@@ -88,6 +192,58 @@ export async function markMessageAsRead(messageId: number | string, signal?: Abo
     return apiClient.put(`/api/messages/${messageId}/read`, {}, { signal });
 }
 
+/** Chats are addressed differently: direct by the peer's username, groups/channels by slug. */
+type ChatRef = { slug: string; type?: ChatType };
+
+const messagesUrl = ({ slug, type }: ChatRef): string =>
+    type === 'group' || type === 'channel' ? `/api/messages/chats/${slug}` : `/api/messages/direct/${slug}`;
+
+/** Send a message to any kind of chat. */
+export async function sendMessage(
+    chat: ChatRef,
+    content: string,
+    attachments: File[] = [],
+    replyToId: number | null = null,
+    forwardedFromMessageId: number | null = null,
+): Promise<Message> {
+    const form = new FormData();
+    if (content) {
+        form.append('content', content);
+    }
+    attachments.forEach((file, index) => {
+        form.append(`attachments[${index}]`, file);
+    });
+    if (replyToId != null) {
+        form.append('reply_to_id', String(replyToId));
+    }
+    if (forwardedFromMessageId != null) {
+        form.append('forwarded_from_message_id', String(forwardedFromMessageId));
+    }
+    const { data } = await apiClient.post<{ data: Message }>(messagesUrl(chat), form, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return data.data;
+}
+
+/** Forward a message into any kind of chat. */
+export async function forwardMessageTo(
+    chat: ChatRef,
+    message: Pick<Message, 'id' | 'content'>,
+): Promise<Message> {
+    return sendMessage(chat, message.content ?? '', [], null, Number(message.id));
+}
+
+/** Newest-first page of messages of any kind of chat. */
+export async function getMessages(chat: ChatRef, page?: number): Promise<Paginated<Message>> {
+    const { data } = await apiClient.get<Paginated<Message>>(messagesUrl(chat), {
+        params: page ? { page } : undefined,
+    });
+    return data;
+}
+
+/** @deprecated direct chats only — prefer `sendMessage` */
 export async function sendDirectMessage(
     username: string,
     content: string,
@@ -121,6 +277,7 @@ export async function sendDirectMessage(
 }
 
 /**
+ * @deprecated direct chats only — prefer `forwardMessageTo`.
  * Forward an existing message to another user's direct chat.
  * The text is sent along with `forwarded_from_message_id` so the backend can
  * mark it as forwarded (and copy attachments, which cannot be re-uploaded here).
@@ -132,6 +289,7 @@ export async function forwardMessage(
     return sendDirectMessage(username, message.content ?? '', [], null, Number(message.id));
 }
 
+/** @deprecated direct chats only — prefer `getMessages` */
 export async function getDirectMessages(
     username: string,
     page?: number,

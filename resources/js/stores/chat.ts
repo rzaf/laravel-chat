@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { getChatList } from '@/api';
-import type { Chat, Message } from '@/types';
+import { getChatList, getPublicChat } from '@/api';
+import type { Chat, ChatType, Message } from '@/types';
 import useAuthStore from '@/stores/auth';
 
 function timestamp(value: string | null | undefined): number {
@@ -27,7 +27,10 @@ export default defineStore('chat', () => {
 
     function reorder(): void {
         chatList.value?.sort(
-            (a, b) => timestamp(b.last_message_created_at) - timestamp(a.last_message_created_at),
+            // chats without messages (e.g. a group you just created) sort by creation time
+            (a, b) =>
+                timestamp(b.last_message_created_at ?? b.created_at) -
+                timestamp(a.last_message_created_at ?? a.created_at),
         );
     }
 
@@ -47,13 +50,77 @@ export default defineStore('chat', () => {
         return chatListLoadPromise.value;
     }
 
-    /** Point `currentChat` at the chat for `slug`, or a placeholder if unknown. */
+    /** Guards against out-of-order results when the user switches chats quickly. */
+    let selectToken = 0;
+
+    /**
+     * Point `currentChat` at the chat for `slug`.
+     *
+     * Not in the list means one of two things:
+     *  - a public group / channel the user hasn't joined yet -> a preview (`is_member: false`)
+     *  - a brand-new direct chat (slug = username)           -> a bare placeholder
+     */
     async function selectChatBySlug(slug: string): Promise<void> {
+        const token = ++selectToken;
+
         if (chatList.value === null) {
             await loadChatList();
         }
 
-        currentChat.value = chatList.value?.find((c) => c.slug === slug) ?? { slug };
+        const known = chatList.value?.find((c) => c.slug === slug);
+        if (known) {
+            if (token === selectToken) currentChat.value = known;
+            return;
+        }
+
+        let resolved = { slug } as Chat;
+        try {
+            const pub = await getPublicChat(slug);
+            if (pub.is_member) {
+                // joined elsewhere (another tab / device): the list is just stale
+                await loadChatList();
+                resolved = chatList.value?.find((c) => c.slug === slug) ?? resolved;
+            } else {
+                resolved = {
+                    id: pub.id,
+                    slug: pub.slug,
+                    name: pub.name,
+                    type: pub.type,
+                    description: pub.description,
+                    members_count: pub.members_count,
+                    profile_photo: pub.profile_photo ?? undefined,
+                    is_member: false,
+                    can_send: false,
+                } as Chat;
+            }
+        } catch {
+            // 404 -> not a public chat: treat as a direct-chat placeholder
+        }
+
+        if (token === selectToken) currentChat.value = resolved;
+    }
+
+    /**
+     * Insert or update a chat coming from the API (create / join responses).
+     * Returns the reactive object that lives in the list.
+     */
+    function upsertChat(chat: Chat): Chat {
+        if (chatList.value === null) {
+            void loadChatList();
+            return chat;
+        }
+        const index = chatList.value.findIndex((c) => c.id === chat.id);
+        if (index === -1) {
+            chatList.value.push(chat);
+        } else {
+            Object.assign(chatList.value[index], chat);
+        }
+        reorder();
+        const stored = chatList.value.find((c) => c.id === chat.id) as Chat;
+        if (currentChat.value?.slug === stored.slug) {
+            currentChat.value = stored; // e.g. a "Join" just turned the preview into a real chat
+        }
+        return stored;
     }
 
     function clearCurrentChat(): void {
@@ -79,7 +146,14 @@ export default defineStore('chat', () => {
         }
     }
 
-    function addChat(id: number, slug: string, name: string, lastMessage: string, directUserId: number | null = null) {
+    function addChat(
+        id: number,
+        slug: string,
+        name: string,
+        lastMessage: string,
+        directUserId: number | null = null,
+        type: ChatType = 'direct',
+    ) {
         if (!chatList.value) {
             return;
         }
@@ -88,7 +162,7 @@ export default defineStore('chat', () => {
             return;
         }
         const now = new Date().toISOString();
-        chatList.value.push({
+        chatList.value.push(<Chat>{
             id: id,
             slug,
             name: name,
@@ -97,7 +171,7 @@ export default defineStore('chat', () => {
             last_message_created_at: now,
             created_at: now,
             unseen_messages_count: 0,
-            type: directUserId == null ? 'direct' : 'group',
+            type,
         });
         reorder();
     }
@@ -136,11 +210,16 @@ export default defineStore('chat', () => {
             message.attachments_count = 0;
         }
         if (chat) {
+            const mine = auth.user?.id === message?.sender_id;
             chat.last_message = message.content;
             chat.last_message_created_at = message.created_at;
-            chat.last_message_is_mine = auth.user?.id === message?.sender_id;
-            // Always count it; the open window marks it read once it's actually visible.
-            chat.unseen_messages_count = (chat.unseen_messages_count ?? 0) + 1;
+            chat.last_message_is_mine = mine;
+            chat.last_message_sender_name = message.sender?.name ?? chat.last_message_sender_name;
+            // Count it; the open window marks it read once it's actually visible.
+            // (Group/channel broadcasts are echoed back to the sender — that's not "unseen".)
+            if (!mine) {
+                chat.unseen_messages_count = (chat.unseen_messages_count ?? 0) + 1;
+            }
             reorder();
         } else {
             // A message for a chat we haven't loaded yet — refresh the list.
@@ -161,6 +240,7 @@ export default defineStore('chat', () => {
         isLoading,
         loadChatList,
         selectChatBySlug,
+        upsertChat,
         clearCurrentChat,
         setLastMessage,
         addChat,

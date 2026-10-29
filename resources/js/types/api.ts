@@ -94,3 +94,15 @@ export interface DeleteMessagePayload {
 export interface ClearChatHistoryPayload {
     delete_for_everyone?: boolean;
 }
+
+/** Body of `POST /api/chats`. */
+export interface CreateChatPayload {
+    type: 'group' | 'channel';
+    name: string;
+    description?: string | null;
+    slug?: string | null;
+    is_private?: boolean;
+    is_readonly?: boolean;
+    /** usernames */
+    members?: string[];
+}

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { RouterLink } from 'vue-router';
+import { useDebounceFn } from '@vueuse/core';
 import useChatStore from '@/stores/chat';
 import ChatListItem from '@/components/chat/ChatListItem.vue';
+import Avatar from '@/components/chat/Avatar.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
 import MenuIcon from '@/assets/svgs/Menu.svg';
 import SearchIcon from '@/assets/svgs/Search.svg';
@@ -13,10 +16,13 @@ import PinOffIcon from '@/assets/svgs/PinOff.svg';
 import ArchiveBoxMenuIcon from '@/assets/svgs/ArchiveBox.svg';
 import ArchiveRestoreIcon from '@/assets/svgs/ArchiveRestore.svg';
 import TrashIcon from '@/assets/svgs/Trash.svg';
+import LogoutIcon from '@/assets/svgs/Logout.svg';
+import UsersIcon from '@/assets/svgs/Users.svg';
+import MegaphoneIcon from '@/assets/svgs/Megaphone.svg';
 import RefreshCwIcon from '@/assets/svgs/RefreshCw.svg';
 import CircleCheckIcon from '@/assets/svgs/CircleCheck.svg';
-import type { Chat, MuteDuration } from '@/types';
-import { toggleChatPin, setChatMute, toggleChatArchive, clearChatHistory, deleteChat, markChatAsRead } from '@/api/index';
+import type { Chat, MuteDuration, PublicChat } from '@/types';
+import { toggleChatPin, setChatMute, toggleChatArchive, clearChatHistory, deleteChat, markChatAsRead, searchPublicChats } from '@/api/index';
 import { useConfirm } from '@/composables/useConfirm';
 import { useContextMenu } from '@/composables/useContextMenu';
 import router from '@/router';
@@ -94,6 +100,48 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onKey);
     chatStore.clear();
 });
+
+/* ---------- public groups & channels (global search) ---------- */
+const PUBLIC_SEARCH_MIN_CHARS = 3;
+const publicResults = ref<PublicChat[]>([]);
+const publicLoading = ref(false);
+let publicToken = 0; // ignore out-of-order responses
+
+const searchPublic = useDebounceFn(async (term: string) => {
+    const token = ++publicToken;
+    publicLoading.value = true;
+    try {
+        const page = await searchPublicChats(term);
+        if (token !== publicToken) return;
+        // chats we already belong to show up in the normal list above
+        publicResults.value = page.data.filter((c) => !c.is_member);
+    } catch (error) {
+        if (token !== publicToken) return;
+        publicResults.value = [];
+        console.error('Failed to search public chats', error);
+    } finally {
+        if (token === publicToken) publicLoading.value = false;
+    }
+}, 350);
+
+watch(q, (term) => {
+    if (term.length < PUBLIC_SEARCH_MIN_CHARS) {
+        publicToken++; // cancel anything in flight
+        publicResults.value = [];
+        publicLoading.value = false;
+        return;
+    }
+    void searchPublic(term);
+});
+
+const showPublicResults = computed(
+    () => !inArchive.value && q.value.length >= PUBLIC_SEARCH_MIN_CHARS && (publicResults.value.length > 0 || publicLoading.value),
+);
+
+function memberNoun(c: PublicChat): string {
+    const noun = c.type === 'channel' ? 'subscriber' : 'member';
+    return `${c.members_count} ${noun}${c.members_count === 1 ? '' : 's'}`;
+}
 
 /* ---------- archive ---------- */
 const inArchive = ref(false);
@@ -198,17 +246,47 @@ async function handleClearHistory(chat: Chat) {
     }
 }
 
+const isGroupLike = (chat: Chat) => chat.type === 'group' || chat.type === 'channel';
+
+/** What the "Delete" action means for this chat: leave a group, delete an owned group, or delete a direct chat. */
+function deleteLabel(chat: Chat): string {
+    if (!isGroupLike(chat)) return 'Delete';
+    const kind = chat.type === 'channel' ? 'channel' : 'group';
+    return chat.my_role === 'owner' ? `Delete ${kind}` : `Leave ${kind}`;
+}
+
 async function handleDelete(chat: Chat) {
-    const res = await confirm({
-        title: 'Delete Chat',
-        message: `Are you sure you want to delete the chat with ${chat.name}?`,
-        confirmText: 'Delete',
-        variant: 'danger',
-        checkboxLabel: 'Delete for everyone',
-    });
+    const groupLike = isGroupLike(chat);
+    const isOwner = chat.my_role === 'owner';
+    const kind = chat.type === 'channel' ? 'channel' : 'group';
+
+    const res = await confirm(
+        !groupLike
+            ? {
+                title: 'Delete Chat',
+                message: `Are you sure you want to delete the chat with ${chat.name}?`,
+                confirmText: 'Delete',
+                variant: 'danger',
+                checkboxLabel: 'Delete for everyone',
+            }
+            : isOwner
+                ? {
+                    title: `Delete ${kind}`,
+                    message: `Delete "${chat.name}" for all members? This cannot be undone.`,
+                    confirmText: 'Delete',
+                    variant: 'danger',
+                }
+                : {
+                    title: `Leave ${kind}`,
+                    message: `Are you sure you want to leave "${chat.name}"?`,
+                    confirmText: 'Leave',
+                    variant: 'danger',
+                },
+    );
 
     const confirmed = typeof res === 'boolean' ? res : res.confirmed;
-    const deleteForEveryone = typeof res === 'object' ? res.checkbox : false;
+    // owners can only delete a group for everyone; members can only leave it
+    const deleteForEveryone = groupLike ? isOwner : typeof res === 'object' ? res.checkbox : false;
 
     if (!confirmed || !chat.id) return;
 
@@ -351,6 +429,35 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                     :current-chat="chatStore.currentChat" :is-menu-open="activeMenuChat?.slug === chat.slug"
                     @contextmenu="handleOpenMenu(chat, $event)" />
             </template>
+
+            <!-- Public groups & channels matching the search -->
+            <section v-if="showPublicResults" aria-label="Public groups and channels">
+                <h4
+                    class="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
+                    Public groups &amp; channels
+                </h4>
+                <p v-if="publicLoading && !publicResults.length"
+                    class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+                    Searching…
+                </p>
+                <div v-for="c in publicResults" :key="c.id" class="px-2 py-0.5">
+                    <RouterLink :to="`/chats/${c.slug}`"
+                        class="flex items-center gap-3 px-2.5 py-2.5 text-gray-900 transition-colors outline-none rounded-xl dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 focus-visible:ring-2 focus-visible:ring-blue-500"
+                        @click="query = ''">
+                        <Avatar class="w-13 h-13 shrink-0" :src="c.profile_photo || '/storage/default-profile.png'" />
+                        <span class="flex flex-col flex-1 min-w-0 gap-0.5">
+                            <span class="flex items-center gap-2">
+                                <MegaphoneIcon v-if="c.type === 'channel'" class="size-4 shrink-0 opacity-60" />
+                                <UsersIcon v-else class="size-4 shrink-0 opacity-60" />
+                                <span class="text-base font-medium truncate">{{ c.name }}</span>
+                            </span>
+                            <span class="text-sm text-gray-500 truncate dark:text-gray-400">
+                                {{ memberNoun(c) }}<template v-if="c.description"> · {{ c.description }}</template>
+                            </span>
+                        </span>
+                    </RouterLink>
+                </div>
+            </section>
         </div>
 
         <!-- Shared Global Context Menu -->
@@ -422,7 +529,7 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                         <span>Mark as read</span>
                     </button>
                 </li>
-                <li>
+                <li v-if="!isGroupLike(activeMenuChat)">
                     <button type="button"
                         class="flex items-center w-full gap-2.5 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-600"
                         @click="act('clearHistory')">
@@ -434,8 +541,10 @@ function act(action: 'mute' | 'pin' | 'archive' | 'markAsRead' | 'clearHistory' 
                     <button type="button"
                         class="flex items-center w-full gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-gray-600"
                         @click="act('delete')">
-                        <TrashIcon class="size-4 opacity-70 shrink-0" />
-                        <span>Delete</span>
+                        <component
+                            :is="isGroupLike(activeMenuChat) && activeMenuChat.my_role !== 'owner' ? LogoutIcon : TrashIcon"
+                            class="size-4 opacity-70 shrink-0" />
+                        <span>{{ deleteLabel(activeMenuChat) }}</span>
                     </button>
                 </li>
             </ul>

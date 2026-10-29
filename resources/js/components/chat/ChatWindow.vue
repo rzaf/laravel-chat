@@ -9,9 +9,9 @@ import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useChatReadState } from '@/composables/useChatReadState';
 import { useMessageActions } from '@/composables/useMessageActions';
 import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { forwardMessage } from '@/api/index.ts';
+import { forwardMessageTo, joinChat, setChatMute } from '@/api/index.ts';
 import { isDateSeparator } from '@/types';
-import type { Chat, Message, MessageGroup } from '@/types';
+import type { Chat, ChatType, Message, MessageGroup } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
 import MessageComposer from '@/components/chat/MessageComposer.vue';
 import ContextMenu from '@/components/common/ContextMenu.vue';
@@ -49,6 +49,7 @@ const draft = ref('');
 const attachments = ref<File[]>([]);
 const sending = ref(false);
 const isDraggingOver = ref(false);
+const joining = ref(false);
 
 /* ------------------------------------------------------------ composables */
 
@@ -82,19 +83,45 @@ const {
     findMessage,
     removeMessage: remove,
     openForward: (message) => forwardModalRef.value?.open(message),
-    focusComposer,    
+    focusComposer,
 });
 
 /* ----------------------------------------------------------- derived data */
 
+/** A chat that isn't in the list yet is a direct-chat placeholder (`{ slug }`). */
+const chatType = computed<ChatType>(() => props.chat.type ?? 'direct');
+/** `false` while previewing a public group / channel that the user hasn't joined. */
+const isMember = computed(() => props.chat.is_member !== false);
+const canJoin = computed(() => !isMember.value);
+/** Members only; groups may be read-only, channels only let admins post (backend computes `can_send`). */
+const canSend = computed(() => isMember.value && (props.chat.can_send ?? true));
+/** Private groups have a random slug — don't show it as a @handle. */
+const showHandle = computed(() => chatType.value === 'direct' || !props.chat.is_private);
+
 /** Display name of the other side of the conversation. */
 const chatLabel = computed(() => props.chat.name ?? props.chat.slug);
-const authorLabel = (m: Message) => (isMine(m) ? 'You' : chatLabel.value);
+const authorLabel = (m: Message) => {
+    if (isMine(m)) return 'You';
+    // in a group the author is whoever wrote the message, not the group itself
+    if (chatType.value === 'group') return m.sender?.name ?? chatLabel.value;
+    return chatLabel.value;
+};
 
 const statusText = computed(() => {
     if (props.chat.is_typing) return 'typing…';
-    if (props.chat.is_online) return 'online';
-    return '';
+    if (chatType.value === 'direct') return props.chat.is_online ? 'online' : '';
+    const count = props.chat.members_count;
+    if (count == null) return '';
+    const noun = chatType.value === 'channel' ? 'subscriber' : 'member';
+    return `${count} ${noun}${count === 1 ? '' : 's'}`;
+});
+
+const emptyTitle = computed(() => {
+    const name = props.chat.name ?? props.chat.slug;
+    if (userExists.value === false) return chatType.value === 'direct' ? 'User does not exist' : 'Chat does not exist';
+    if (chatType.value === 'channel') return 'No posts yet';
+    if (chatType.value === 'group') return `No messages in ${name} yet`;
+    return `No messages with ${name} yet`;
 });
 
 /** Timeline grouped into date sections (a leading unlabeled group if no separator comes first). */
@@ -114,6 +141,8 @@ const groups = computed<MessageGroup[]>(() => {
             updatedAt: item.updated_at,
             forwardedFrom: item.forwarded_from,
             isSent: isMine(item),
+            senderName: item.sender?.name,
+            senderId: item.sender_id,
             attachments: item.attachments,
             attachments_count: item.attachments_count,
         });
@@ -162,7 +191,7 @@ async function openChat(slug: string): Promise<void> {
     const previousEl = listRef.value;
     showGoToBottom.value = false;
 
-    await loadInitial(slug);
+    await loadInitial(slug, chatType.value);
     if (isStale()) return;
 
     if (props.chat.last_read_at) {
@@ -208,7 +237,7 @@ function updateLastMessage(chatId: number | null | undefined, sent: Message): vo
 async function handleSend(): Promise<void> {
     const content = draft.value.trim();
     const slug = props.chat.slug;
-    if (!slug || userExists.value === false || (!content && attachments.value.length === 0)) {
+    if (!slug || !canSend.value || userExists.value === false || (!content && attachments.value.length === 0)) {
         return;
     }
     sending.value = true;
@@ -233,6 +262,7 @@ async function handleSend(): Promise<void> {
                 message?.chat?.name || slug,
                 content,
                 props.chat.direct_user_id,
+                chatType.value,
             );
             chatStore.selectChatBySlug(slug);
         }
@@ -267,7 +297,7 @@ async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
         const isCurrentChat = slug === props.chat.slug;
         const sent = isCurrentChat
             ? await send(slug, msg.content ?? '', [], null, Number(msg.id))
-            : await forwardMessage(slug, msg);
+            : await forwardMessageTo({ slug, type: targetChat.type }, msg);
 
         updateLastMessage(targetChat.id, sent);
         if (isCurrentChat) {
@@ -280,7 +310,8 @@ async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
 
 async function handleForwardMessage(targetChats: Chat[], msgToForward: Message): Promise<void> {
     if (msgToForward.id == null) return;
-    const targets = targetChats.filter((c) => c.slug);
+    // skip chats we can't post to (e.g. channels where we're not an admin)
+    const targets = targetChats.filter((c) => c.slug && c.can_send !== false);
 
     const results = await Promise.allSettled(targets.map((chat) => forwardTo(chat, msgToForward)));
     results.forEach((r, i) => {
@@ -291,7 +322,40 @@ async function handleForwardMessage(targetChats: Chat[], msgToForward: Message):
 
     const delivered = targets.filter((_, i) => results[i].status === 'fulfilled');
     if (targets.length === 1 && delivered.length === 1 && delivered[0].slug !== props.chat.slug) {
-        router.push(`/users/${delivered[0].slug}`);
+        router.push(`/chats/${delivered[0].slug}`);
+    }
+}
+
+/* ------------------------------------------------------------ join / mute */
+
+/** Join the public group / channel being previewed. */
+async function handleJoin(): Promise<void> {
+    const chatId = props.chat.id;
+    if (chatId == null || joining.value) return;
+    joining.value = true;
+    try {
+        const joined = await joinChat(chatId);
+        // puts it in the chat list and swaps the preview for the real chat
+        chatStore.upsertChat(joined);
+    } catch (error) {
+        console.error('Failed to join chat', error);
+    } finally {
+        joining.value = false;
+    }
+}
+
+/** Channels (read-only for most people) show Mute / Unmute instead of the composer. */
+async function toggleMute(): Promise<void> {
+    const target = props.chat;
+    if (target.id == null) return;
+    const duration = target.muted ? null : 'forever';
+    try {
+        const res = await setChatMute(target.id, duration);
+        target.muted = res.muted;
+        target.mutedFor = duration;
+        target.muted_until = res.muted_until;
+    } catch (error) {
+        console.error('Failed to update mute', error);
     }
 }
 
@@ -397,10 +461,13 @@ onBeforeUnmount(cancelRead);
                     </span>
                     <span
                         class="flex items-center gap-1.5 text-sm leading-tight text-gray-500 truncate dark:text-gray-400">
-                        <span class="truncate">@{{ chat.slug }}</span>
+                        <span v-if="showHandle" class="truncate">@{{ chat.slug }}</span>
                         <template v-if="statusText">
-                            <span aria-hidden="true">·</span>
-                            <span class="text-blue-600 dark:text-blue-400">{{ statusText }}</span>
+                            <span v-if="showHandle" aria-hidden="true">·</span>
+                            <span
+                                :class="chatType === 'direct' || chat.is_typing ? 'text-blue-600 dark:text-blue-400' : ''">
+                                {{ statusText }}
+                            </span>
                         </template>
                     </span>
                 </span>
@@ -440,9 +507,9 @@ onBeforeUnmount(cancelRead);
                     class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
                     <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
                     <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
-                        {{ userExists === false ? 'User does not exist' : `No messages with ${chat.name ?? chat.slug} yet` }}
+                        {{ emptyTitle }}
                     </h2>
-                    <p v-if="userExists !== false" class="text-sm text-gray-500 dark:text-gray-400">
+                    <p v-if="userExists !== false && canSend" class="text-sm text-gray-500 dark:text-gray-400">
                         Say hello to start the conversation.
                     </p>
                 </div>
@@ -457,9 +524,11 @@ onBeforeUnmount(cancelRead);
                                 {{ group.label }}
                             </span>
                         </div>
-                        <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type" :data-message-id="row.id"
-                            :message="row.text" :time="row.time" :updated-at="row.updatedAt" :is-sent="row.isSent" :attachments="row.attachments"
-                            :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
+                        <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
+                            :data-message-id="row.id" :message="row.text" :time="row.time" :updated-at="row.updatedAt"
+                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-id="row.senderId"
+                            :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
+                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
                             :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
                             :is-menu-open="activeMenuMessage?.key === row.key"
                             @open-menu="handleOpenMessageMenu(row, $event)" />
@@ -510,7 +579,29 @@ onBeforeUnmount(cancelRead);
             </button>
         </div>
 
-        <MessageComposer ref="composerRef" v-model="draft" :sending="sending" :attachments="attachments" @send="handleSend" />
+        <MessageComposer v-if="canSend" ref="composerRef" v-model="draft" :sending="sending" :attachments="attachments"
+            @send="handleSend" />
+
+        <!-- Previewing a public group / channel -->
+        <div v-else-if="canJoin"
+            class="flex items-center justify-center px-4 py-3 bg-white border-t border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+            <button type="button" :disabled="joining"
+                class="px-6 py-2 text-sm font-medium text-blue-600 transition-colors rounded-full cursor-pointer hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10 disabled:opacity-50"
+                @click="handleJoin">
+                {{ joining ? 'Joining…' : chatType === 'channel' ? 'Join channel' : 'Join group' }}
+            </button>
+        </div>
+
+        <!-- Member who can't post: channel (mute toggle) or read-only group -->
+        <div v-else
+            class="flex items-center justify-center px-4 py-3 bg-white border-t border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+            <button v-if="chatType === 'channel'" type="button"
+                class="px-6 py-2 text-sm font-medium text-blue-600 transition-colors rounded-full cursor-pointer hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
+                @click="toggleMute">
+                {{ chat.muted ? 'Unmute' : 'Mute' }}
+            </button>
+            <p v-else class="text-sm text-gray-500 dark:text-gray-400">Only admins can send messages in this group</p>
+        </div>
 
         <!-- Forward Modal -->
         <ForwardModal ref="forwardModalRef" @forward="handleForwardMessage" />
@@ -518,7 +609,7 @@ onBeforeUnmount(cancelRead);
         <!-- Shared Modern Context Menu -->
         <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="handleCloseMenu">
             <ul class="py-1 space-y-0.5 text-sm">
-                <li>
+                <li v-if="canSend">
                     <button type="button"
                         class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
                         @click="handleMenuAction('reply')">
@@ -526,7 +617,7 @@ onBeforeUnmount(cancelRead);
                         <span>Reply</span>
                     </button>
                 </li>
-                <li v-if="activeMenuMessage?.isSent && activeMenuMessage?.forwardedFrom==null">
+                <li v-if="canSend && activeMenuMessage?.isSent && activeMenuMessage?.forwardedFrom == null">
                     <button type="button"
                         class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
                         @click="handleMenuAction('edit')">
@@ -558,8 +649,8 @@ onBeforeUnmount(cancelRead);
                         <span>Select</span>
                     </button>
                 </li>
-                <div class="my-1 border-t border-gray-100 dark:border-gray-600" />
-                <li>
+                <div v-if="isMember" class="my-1 border-t border-gray-100 dark:border-gray-600" />
+                <li v-if="isMember">
                     <button type="button"
                         class="flex items-center w-full gap-2 px-2 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
                         @click="handleMenuAction('delete')">
@@ -587,6 +678,7 @@ onBeforeUnmount(cancelRead);
 }
 
 @media (prefers-reduced-motion: reduce) {
+
     .chat-section-enter-active,
     .chat-section-leave-active {
         transition: none;

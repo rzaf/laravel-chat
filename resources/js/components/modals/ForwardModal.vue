@@ -45,7 +45,8 @@ const previewText = computed(() => {
 
 const filteredChats = computed(() => {
     const q = query.value.toLowerCase().trim();
-    const chats = (chatStore.chatList ?? []).filter((c) => c.slug);
+    // channels (and read-only groups) where we can't post are not valid targets
+    const chats = (chatStore.chatList ?? []).filter((c) => c.slug && c.can_send !== false);
     if (!q) return chats;
     return chats.filter(
         (c) =>
@@ -100,8 +101,7 @@ defineExpose({ open: openModal, close, toggle, isOpen, messageToForward });
             <!-- Chat list -->
             <div class="flex flex-col flex-1 min-h-0 px-3 pb-2 overflow-y-auto scrollable" role="listbox"
                 aria-multiselectable="true">
-                <div v-if="filteredChats.length === 0"
-                    class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                <div v-if="filteredChats.length === 0" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                     No chats found
                 </div>
                 <button v-for="chat in filteredChats" :key="chat.id ?? chat.slug" type="button" role="option"
@@ -114,7 +114,7 @@ defineExpose({ open: openModal, close, toggle, isOpen, messageToForward });
                             {{ chat.name ?? chat.slug }}
                         </span>
                         <span class="text-sm text-gray-500 truncate dark:text-gray-400">
-                            {{ chat.last_message || `@${chat.slug}` }}
+                            {{ chat.last_message || (chat.type === 'direct' ? `@${chat.slug}` : chat.type) }}
                         </span>
                     </span>
                     <!-- check circle -->

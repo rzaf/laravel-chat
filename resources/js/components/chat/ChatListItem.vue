@@ -4,6 +4,9 @@ import { RouterLink } from 'vue-router';
 import { formattedTimestamp } from '@/helpers/time';
 import MuteXIcon from '@/assets/svgs/MuteX.svg';
 import PinIcon from '@/assets/svgs/Pin.svg';
+import UserIcon from '@/assets/svgs/User.svg';
+import UsersIcon from '@/assets/svgs/Users.svg';
+import MegaphoneIcon from '@/assets/svgs/Megaphone.svg';
 import type { Chat } from '@/types';
 import Avatar from './Avatar.vue';
 
@@ -28,14 +31,20 @@ const preview = computed(() => {
 const previewPrefix = computed(() => {
     if (props.chat.is_typing) return '';
     if (props.chat.draft) return 'Draft: ';
+    // channel posts have no visible author
+    if (props.chat.type === 'channel') return '';
     if (props.chat.last_message_is_mine) return 'You: ';
+    // groups: "Alice: hello"
+    if (props.chat.type === 'group' && props.chat.last_message_sender_name && props.chat.last_message) {
+        return `${props.chat.last_message_sender_name}: `;
+    }
     return '';
 });
 </script>
 
 <template>
     <div class="px-2 py-0.5">
-        <RouterLink :to="`/users/${chat.slug}`"
+        <RouterLink :to="`/chats/${chat.slug}`"
             class="relative flex items-center gap-3 px-2.5 py-2.5 transition-colors rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             :class="[
                 isActive
@@ -55,6 +64,13 @@ const previewPrefix = computed(() => {
             <div class="flex flex-col flex-1 min-w-0 gap-0.5">
                 <!-- Row 1: name + pin + mute + time -->
                 <div class="flex items-center gap-2">
+                    <!-- group / channel marker -->
+                    <MegaphoneIcon v-if="chat.type === 'channel'" class="size-4 shrink-0 opacity-60"
+                        aria-label="Channel" />
+                    <UsersIcon v-else-if="chat.type === 'group'" class="size-4 shrink-0 opacity-60"
+                        aria-label="Group" />
+                    <UserIcon v-else-if="chat.type === 'direct'" class="size-4 shrink-0 opacity-60"
+                        aria-label="Group" />
                     <h3 class="text-base font-medium truncate" :class="{ 'font-semibold': unseen > 0 && !chat.muted }">
                         {{ chat.name }}
                     </h3>

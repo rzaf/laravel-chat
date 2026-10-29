@@ -44,8 +44,10 @@ export function useChatReadState({ chat, messages, isIncoming, lastVisibleMessag
 
     /** Mark the newest unseen message at/above the viewport bottom as read. */
     function readVisible(): void {
-        const chatId = chat().id;
-        if (chatId == null) return;
+        const current = chat();
+        const chatId = current.id;
+        // a previewed public chat (not joined) has nothing to mark as read
+        if (chatId == null || current.is_member === false) return;
         const id = lastVisibleMessageId();
         if (id == null) return;
         let i = messages.value.findIndex((m) => String(m.id) === id);
@@ -58,7 +60,7 @@ export function useChatReadState({ chat, messages, isIncoming, lastVisibleMessag
     async function markAllRead(): Promise<void> {
         const current = chat();
         const chatId = current.id;
-        if (chatId == null || !messages.value.some(isUnseen)) return;
+        if (chatId == null || current.is_member === false || !messages.value.some(isUnseen)) return;
 
         const prevReadAt = current.last_read_at;
         const prevCount = current.unseen_messages_count;

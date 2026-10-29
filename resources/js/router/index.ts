@@ -18,9 +18,22 @@ const routes: RouteRecordRaw[] = [
         meta: { requiresAuth: true },
     },
     {
-        path: '/users/:username',
-        name: 'privateChats',
+        // any chat: direct (slug = username), group or channel
+        path: '/chats/:slug',
+        name: 'chat',
         component: () => import('@/views/HomeView.vue'),
+        meta: { requiresAuth: true },
+    },
+    {
+        // old direct-chat links / bookmarks
+        path: '/users/:username',
+        redirect: (to) => ({ name: 'chat', params: { slug: to.params.username } }),
+    },
+    {
+        // invite link of a group / channel
+        path: '/join/:code',
+        name: 'joinChat',
+        component: () => import('@/views/JoinChatView.vue'),
         meta: { requiresAuth: true },
     },
     {

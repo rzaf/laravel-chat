@@ -4,6 +4,8 @@ import { onKeyStroke, useDark } from '@vueuse/core';
 import useAuthStore from '@/stores/auth';
 import ContactsIcon from '@/assets/svgs/Contacts.svg';
 import UserPlusIcon from '@/assets/svgs/UserPlus.svg';
+import UsersIcon from '@/assets/svgs/Users.svg';
+import MegaphoneIcon from '@/assets/svgs/Megaphone.svg';
 import SunIcon from '@/assets/svgs/Sun.svg';
 import MoonIcon from '@/assets/svgs/Moon.svg';
 import SettingsIcon from '@/assets/svgs/Settings.svg';
@@ -17,6 +19,7 @@ const emit = defineEmits<{
     (e: 'openContacts'): void;
     (e: 'openAddContact'): void;
     (e: 'openSetting'): void;
+    (e: 'openCreateChat', type: 'group' | 'channel'): void;
     (e: 'logout'): void;
     (e: 'openProfile'): void; // NEW: tap the header to edit your profile
 }>();
@@ -25,7 +28,7 @@ const auth = useAuthStore();
 const isDark = useDark();
 
 type Item = {
-    id: 'contacts' | 'addContact' | 'settings';
+    id: 'contacts' | 'addContact' | 'newGroup' | 'newChannel' | 'settings';
     label: string;
     icon: Component;
     iconClass: string; // your SVGs mix stroke-based and fill-based icons
@@ -33,6 +36,8 @@ type Item = {
 };
 
 const mainItems = computed<Item[]>(() => [
+    { id: 'newGroup', label: 'New group', icon: UsersIcon, iconClass: 'stroke-current', run: () => emit('openCreateChat', 'group') },
+    { id: 'newChannel', label: 'New channel', icon: MegaphoneIcon, iconClass: 'stroke-current', run: () => emit('openCreateChat', 'channel') },
     { id: 'contacts', label: 'Contacts', icon: ContactsIcon, iconClass: 'stroke-current', run: () => emit('openContacts') },
     { id: 'addContact', label: 'Add contact', icon: UserPlusIcon, iconClass: 'stroke-current', run: () => emit('openAddContact') },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, iconClass: 'fill-current', run: () => emit('openSetting') },
@@ -94,13 +99,13 @@ onBeforeUnmount(() => {
                     @click="open = false; emit('openProfile')">
                     <!-- <img src="/storage/default-profile.png" alt=""
                         class="object-cover rounded-full size-14" /> -->
-                    <Avatar :src="'/storage/default-profile.png'" class="object-cover rounded-full size-14"/>
+                    <Avatar :src="'/storage/default-profile.png'" class="object-cover rounded-full size-14" />
                     <span class="flex flex-col min-w-0">
                         <span class="text-lg font-medium text-gray-900 truncate dark:text-gray-100">
                             {{ auth.user?.name }}
                         </span>
                         <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ auth.user?.username
-                            }}</span>
+                        }}</span>
                     </span>
                 </button>
 

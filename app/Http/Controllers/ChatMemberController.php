@@ -44,17 +44,52 @@ class ChatMemberController extends Controller
             'Only admins can see the subscribers of a channel'
         );
 
+        $validated = $req->validate([
+            'role' => 'sometimes|in:all,admins,normal',
+            'sort' => 'sometimes|in:name,joined_at,role',
+            'direction' => 'sometimes|in:asc,desc'
+        ]);
+        $role = $validated['role'] ?? 'all';
+        $sort = $validated['sort'] ?? 'role';
+        $direction = $validated['direction'] ?? 'asc';
+
+
         $members = User::query()
             ->join('chat_members', 'chat_members.user_id', '=', 'users.id')
             ->where('chat_members.chat_id', $chat->id)
             ->whereNull('chat_members.deleted_at')
+            ->when($this->isAdminRole($me->role) && $role === 'admins', fn($q) => $q->whereIn('chat_members.role', ['owner', 'admin']))
+            ->when($this->isAdminRole($me->role) && $role === 'normal', fn($q) => $q->where('chat_members.role', 'normal'))
             ->select('users.*', 'chat_members.role as role')
             ->with('profilePhoto')
-            ->orderByRaw("CASE chat_members.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END")
-            ->orderBy('users.name')
-            ->simplePaginate(50);
+            // ->orderByRaw("CASE chat_members.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END")
+            // ->orderBy('users.name')
+            ->when($sort === 'role', fn($q) => $q->orderByRaw("CASE chat_members.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END " . ($direction === 'desc' ? 'DESC' : 'ASC')))
+            ->when($sort === 'name', fn($q) => $q->orderBy('users.name', $direction))
+            ->when($sort === 'joined_at', fn($q) => $q->orderBy('chat_members.created_at', $direction))
+            ->orderBy('users.id')
+            ->paginate(10);
 
         return ChatMemberResource::collection($members);
+    }
+
+    public function membersInTheContact(Request $req, string $chatId)
+    {
+        $chat = $this->groupChatOrFail($chatId);
+
+        $this->memberOrFail($req->user()->id, $chat->id);
+
+        $contactUserIds = $req->user()->contacts()
+            ->pluck('user_id');
+
+        $usernames = User::query()
+            ->join('chat_members', 'chat_members.user_id', '=', 'users.id')
+            ->where('chat_members.chat_id', $chat->id)
+            ->whereNull('chat_members.deleted_at')
+            ->whereIn('users.id', $contactUserIds)
+            ->pluck('users.username');
+
+        return response()->json($usernames);
     }
 
     /**

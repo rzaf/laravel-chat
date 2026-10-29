@@ -75,6 +75,7 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
 
     // members of a group / channel
     Route::get('/{chatId}/members', [ChatMemberController::class, 'index'])->whereNumber('chatId');
+    Route::get('/{chatId}/membersInTheContact', [ChatMemberController::class, 'membersInTheContact'])->whereNumber('chatId');
     Route::post('/{chatId}/members', [ChatMemberController::class, 'store'])->whereNumber('chatId');
     Route::put('/{chatId}/members/{userId}', [ChatMemberController::class, 'update'])->whereNumber(['chatId', 'userId']);
     Route::delete('/{chatId}/members/{userId}', [ChatMemberController::class, 'destroy'])->whereNumber(['chatId', 'userId']);

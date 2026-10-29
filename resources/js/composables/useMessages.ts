@@ -1,8 +1,8 @@
 import { computed, ref } from 'vue';
 import { isAxiosError } from 'axios';
-import { deleteMessage, getDirectMessages, sendDirectMessage, updateMessage } from '@/api';
+import { deleteMessage, getMessages, sendMessage, updateMessage } from '@/api';
 import { groupMessagesByDate } from '@/helpers/messageGrouping';
-import type { Message } from '@/types';
+import type { ChatType, Message } from '@/types';
 
 const PAGE_SIZE = 20;
 const MAX_HISTORY_PAGES = 50;
@@ -32,6 +32,8 @@ export function useMessages() {
     let loadingOlder = false;
     /** Slug of the chat currently shown; used to ignore sends for a chat we've left. */
     let currentSlug: string | null = null;
+    /** Kind of chat currently shown: decides which endpoints are used (direct vs group/channel). */
+    let currentType: ChatType = 'direct';
     /** Bumped on every reset so late responses for a previous chat can be discarded. */
     let generation = 0;
 
@@ -49,12 +51,13 @@ export function useMessages() {
         return messages.value.find((m) => sameId(m.id, id));
     }
 
-    async function loadInitial(slug: string): Promise<void> {
+    async function loadInitial(slug: string, type: ChatType = 'direct'): Promise<void> {
         reset();
         currentSlug = slug;
+        currentType = type;
         const gen = generation;
         try {
-            const { data } = await getDirectMessages(slug);
+            const { data } = await getMessages({ slug, type });
             if (gen !== generation) return; // user already moved to another chat
             userExists.value = true;
             isLastPage.value = data.length < PAGE_SIZE;
@@ -80,7 +83,7 @@ export function useMessages() {
         loadingOlder = true;
         try {
             const nextPage = page + 1;
-            const { data } = await getDirectMessages(slug, nextPage);
+            const { data } = await getMessages({ slug, type: currentType }, nextPage);
             if (gen !== generation) return false;
             // Only advance after success so a failed request doesn't skip a page.
             page = nextPage;
@@ -123,13 +126,14 @@ export function useMessages() {
         replyToId: number | null = null,
         forwardedFromMessageId: number | null = null,
     ): Promise<Message> {
-        const message = await sendDirectMessage(slug, content, attachments, replyToId, forwardedFromMessageId);
+        const message = await sendMessage({ slug, type: currentType }, content, attachments, replyToId, forwardedFromMessageId);
         if (message.attachments != null) {
             message.attachments_count = message.attachments.length;
         }
         // The user may have switched chats while the request was in flight;
         // don't leak the new message into another chat's timeline.
         if (slug === currentSlug) {
+            // append(message);
             messages.value.push(message);
             isChatEmpty.value = false;
         }

@@ -15,6 +15,9 @@ const props = defineProps<{
     message: string;
     time: string;
     chatType: ChatType;
+    /** Author's name — only rendered in group chats, for messages from other people. */
+    senderName?: string;
+    senderId?: number;
     updatedAt?: string;
     isSent?: boolean;
     attachments?: Attachment[];
@@ -32,6 +35,32 @@ const emit = defineEmits<{
     (e: 'openMenu', event: MouseEvent): void;
     (e: 'jumpToReply', messageId: number | string): void;
 }>();
+
+/* --------------------------------------------------------------- sender */
+
+/** Same author -> same colour. Full class names so Tailwind can see them. */
+const SENDER_COLORS = [
+    'text-red-600 dark:text-red-400',
+    'text-orange-600 dark:text-orange-400',
+    'text-amber-600 dark:text-amber-400',
+    'text-green-600 dark:text-green-400',
+    'text-teal-600 dark:text-teal-400',
+    'text-cyan-600 dark:text-cyan-400',
+    'text-blue-600 dark:text-blue-400',
+    'text-violet-600 dark:text-violet-400',
+    'text-pink-600 dark:text-pink-400',
+];
+
+const showSender = computed(() => props.chatType === 'group' && !props.isSent && !!props.senderName);
+
+const senderColor = computed(() => {
+    const key = String(props.senderId ?? props.senderName ?? '');
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+        hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+    }
+    return SENDER_COLORS[hash % SENDER_COLORS.length];
+});
 
 /* ---------------------------------------------------------------- reply */
 
@@ -68,6 +97,11 @@ const isEdited = computed(() => {
             'ring-2 ring-gray-500 dark:ring-gray-400': isMenuOpen
         }" @contextmenu.prevent="emit('openMenu', $event)">
 
+            <!-- Author (groups only) -->
+            <p v-if="showSender" class="px-3 pt-2 text-sm font-semibold truncate" :class="senderColor">
+                {{ senderName }}
+            </p>
+
             <!-- Forwarded header -->
             <div v-if="forwardedFrom" class="px-3 pt-2.5 text-xs"
                 :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
@@ -75,15 +109,15 @@ const isEdited = computed(() => {
                     <ForwardIcon class="size-3.5 shrink-0" />
                     Forwarded from
                 </p>
-                
+
                 <p class="flex items-center gap-1.5 mt-1 font-semibold">
                     <Avatar class="size-5 shrink-0"
-                            :src="forwardedFrom.profile_photo || '/storage/default-profile.png'" />
+                        :src="forwardedFrom.profile_photo || '/storage/default-profile.png'" />
                     <!-- group -->
                     <UsersIcon v-if="forwardKind === 'group'" class="size-3.5 shrink-0" />
                     <!-- channel -->
                     <MegaphoneIcon v-else-if="forwardKind === 'channel'" class="size-3.5 shrink-0" />
-                    <RouterLink v-if="forwardSource?.slug" :to="`/users/${forwardSource?.slug ?? 'unknown'}`">
+                    <RouterLink v-if="forwardSource?.slug" :to="`/chats/${forwardSource?.slug ?? 'unknown'}`">
                         <span class="truncate">{{ forwardName }}</span>
                     </RouterLink>
                     <span v-else class="truncate">{{ forwardName }}</span>
@@ -93,7 +127,8 @@ const isEdited = computed(() => {
             </div>
 
             <!-- Reply quote -->
-            <button v-if="replyToMessageId" type="button" :aria-label="`Go to replied message from ${replyAuthor ?? 'user'}`"
+            <button v-if="replyToMessageId" type="button"
+                :aria-label="`Go to replied message from ${replyAuthor ?? 'user'}`"
                 class="flex w-[calc(100%-1rem)] mx-2 mt-2 overflow-hidden text-left transition-colors rounded-lg cursor-pointer"
                 :class="isSent ? 'bg-white/15 hover:bg-white/20' : 'bg-blue-50 hover:bg-blue-100 dark:bg-black/20 dark:hover:bg-black/30'"
                 @click.stop="jumpToReply">
@@ -103,7 +138,7 @@ const isEdited = computed(() => {
                         :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
                         {{ replyAuthor ?? 'Message' }}
                     </span>
-                    <span v-if="replyTo===null" class="italic opacity-70 text-nowrap">Message unavailable</span>
+                    <span v-if="replyTo === null" class="italic opacity-70 text-nowrap">Message unavailable</span>
                     <span v-else-if="replyText" class="break-words line-clamp-2 opacity-90">{{ replyText }}</span>
                     <span v-else-if="replyHasAttachment" class="flex items-center gap-1 italic opacity-90">
                         <PaperClipIcon class="size-3.5 shrink-0" />

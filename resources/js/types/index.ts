@@ -24,7 +24,10 @@ export interface User {
     token?: string;
 }
 
-export type ChatType = 'direct' | 'group';
+export type ChatType = 'direct' | 'group' | 'channel';
+
+/** Role inside a group / channel (`chat_members.role`). */
+export type ChatRole = 'owner' | 'admin' | 'normal';
 
 /** A row of the chat list (`GET /api/chats`). */
 export interface Chat {
@@ -41,10 +44,27 @@ export interface Chat {
     latest_message_attachments_count?: number;
     profile_photo?: string;
 
-    //Add later
     description?: string | null;
-    members_count?: number;
+    members_count?: number | null;
     owner_id?: number | null;
+
+    // --- groups & channels ---
+    is_private?: boolean;
+    /** Only admins can send (always true for channels). */
+    is_readonly?: boolean;
+    /** The current user's role in this chat. */
+    my_role?: ChatRole | null;
+    /** Whether the current user may post here (computed by the backend). */
+    can_send?: boolean;
+    /** Only present for admins / the owner. */
+    invite_code?: string;
+    /** Author of the last message, for the "Alice: hi" preview in groups. */
+    last_message_sender_name?: string | null;
+    /**
+     * `false` for a public chat the user is only previewing (not joined yet).
+     * Missing / `true` for every chat that comes from the chat list.
+     */
+    is_member?: boolean;
     // is_online: boolean;
     // is_pinned: boolean;
 
@@ -113,6 +133,9 @@ export interface MessageRow {
     updatedAt?: string;
     forwardedFrom?: Chat;
     isSent: boolean;
+    /** Author — shown above the text in group chats. */
+    senderName?: string;
+    senderId?: number;
     attachments?: Attachment[];
     attachments_count?: number;
 }
@@ -136,3 +159,21 @@ export interface Contact {
 
 
 export type MuteDuration = '15m' | '1h' | '8h' | '24h' | '1w' | 'forever' | null;
+
+/** A user as a member of a group / channel (`GET /api/chats/{id}/members`). */
+export interface ChatMember extends User {
+    role: ChatRole;
+}
+
+/** Row of the public group / channel search (`GET /api/chats/public`). */
+export interface PublicChat {
+    id: number;
+    slug: string;
+    name: string;
+    type: 'group' | 'channel';
+    description: string | null;
+    members_count: number;
+    is_member: boolean;
+    profile_photo: string | null;
+    created_at: string;
+}

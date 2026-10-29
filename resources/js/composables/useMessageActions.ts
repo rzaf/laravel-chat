@@ -14,6 +14,7 @@ interface Options {
     /** Deletes on the server and removes locally (`useMessages().remove`). */
     removeMessage: (id: string | number, deleteForEveryone: boolean) => Promise<void>;
     openForward: (message: Message) => void;
+    /** Called when a reply / edit starts so the textarea gets focus. */
     focusComposer?: () => void;
 }
 
@@ -34,7 +35,7 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
     function startReply(message: Message): void {
         replyingToMessage.value = message;
         editingMessage.value = null; // can't edit and reply simultaneously
-        focusComposer?.();    
+        focusComposer?.();
     }
 
     function startEdit(message: Message): void {

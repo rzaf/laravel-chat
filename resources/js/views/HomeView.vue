@@ -13,6 +13,8 @@ import AddContactModal from '@/components/contacts/AddContactModal.vue';
 import EditContactModal from '@/components/contacts/EditContactModal.vue';
 import SettingModal from '@/components/modals/SettingModal.vue';
 import ProfileModal from '@/components/modals/ProfileModal.vue';
+import CreateChatModal from '@/components/modals/CreateChatModal.vue';
+import AddChatMembersModal from '@/components/modals/AddChatMembersModal.vue';
 import Modal from '@/components/common/Modal.vue';
 
 const route = useRoute();
@@ -28,6 +30,8 @@ const addContactModalRef = ref<InstanceType<typeof AddContactModal> | null>(null
 const editContactModalRef = ref<InstanceType<typeof EditContactModal> | null>(null);
 const profileModalRef = ref<InstanceType<typeof Modal> | null>(null);
 const settingModalRef = ref<InstanceType<typeof Modal> | null>(null);
+const createChatModalRef = ref<InstanceType<typeof CreateChatModal> | null>(null);
+const addMembersModalRef = ref<InstanceType<typeof AddChatMembersModal> | null>(null);
 
     
 onMounted(() => {
@@ -41,8 +45,8 @@ watch(
     () => route.fullPath,
     () => {
         pageNotFound.value = route.name === 'notFound';
-        if (route.name === 'privateChats') {
-            const slug = route.params.username as string;
+        if (route.name === 'chat') {
+            const slug = route.params.slug as string;
             chat.selectChatBySlug(slug);
         } else {
             chat.clearCurrentChat();
@@ -64,7 +68,8 @@ router.onError((e) => console.error('router error', e));
 <template>
     <div class="relative flex w-full h-full overflow-hidden">
         <AppSidebar v-model:open="showSidebar" @open-contacts="" @open-add-contact="addContactModalRef?.open()"
-            @open-setting="settingModalRef?.open()" @logout="handleLogout" />
+            @open-setting="settingModalRef?.open()" @open-create-chat="(type) => createChatModalRef?.open(type)"
+            @logout="handleLogout" />
 
         <!-- Chat List remains visible on mobile; on mobile when a chat is selected, we slide the chat window over/across -->
         <ChatList class="w-full lg:w-96 shrink-0 h-full" @toggle-menu="showSidebar = !showSidebar" />
@@ -90,11 +95,17 @@ router.onError((e) => console.error('router error', e));
     
     <AddContactModal ref="addContactModalRef" @open-direct-chat="(username) => {
         addContactModalRef?.close();
-        router.push(`/users/${username}`)
+        router.push(`/chats/${username}`)
     }" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)" />
 
 
-    <ProfileModal ref="profileModalRef" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)"  />
+    <ProfileModal ref="profileModalRef" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)"
+        @open-add-members="(chatItem) => addMembersModalRef?.open(chatItem)" />
+
+    <CreateChatModal ref="createChatModalRef" />
+
+    <!-- after people are added, refresh the member list in the (still open) profile modal -->
+    <AddChatMembersModal ref="addMembersModalRef" @added="profileModalRef?.reloadMembers()" />
 
     <Modal ref="settingModalRef">
         <SettingModal />
