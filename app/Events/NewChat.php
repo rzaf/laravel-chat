@@ -2,35 +2,36 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+use App\Http\Resources\ChatResource;
+use App\Models\Chat;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class NewChat
+class NewChat implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    /**
-     * Create a new event instance.
-     */
-    public function __construct()
-    {
-        //
-    }
+    public function __construct(public Chat $chat) {}
 
-    /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
-     */
     public function broadcastOn(): array
     {
-        return [
-            new PrivateChannel('channel-name'),
-        ];
+        return $this->chat->members()
+            ->whereNull('chat_members.deleted_at')
+            ->pluck('users.id')
+            ->map(fn($userId) => new PrivateChannel('Users.' . $userId))
+            ->all();
+    }
+
+    public function broadcastAs(): string
+    {
+        return 'chat.new';
+    }
+
+    public function broadcastWith(): array
+    {
+        return ['chat' => (new ChatResource($this->chat))->resolve()];
     }
 }

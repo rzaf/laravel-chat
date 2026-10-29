@@ -2,11 +2,11 @@ import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 import { broadcastAuthorize } from '@/api';
 
-// laravel-echo's reverb/pusher connector reads Pusher off the global scope.
 window.Pusher = Pusher;
+let currentSocketId: string | null = null;
 
 function createEcho() {
-    return new Echo({
+    const echoInstance = new Echo({
         broadcaster: 'reverb',
         key: import.meta.env.VITE_REVERB_APP_KEY,
         wsHost: import.meta.env.VITE_REVERB_HOST,
@@ -25,11 +25,17 @@ function createEcho() {
             },
         }),
     });
+
+    // Capture socket ID as soon as it connects
+    echoInstance.connector.pusher.connection.bind('connected', () => {
+        currentSocketId = echoInstance.socketId() ?? null;
+    });
+
+    return echoInstance;
 }
 
 let echo: ReturnType<typeof createEcho> | null = null;
 
-/** Lazily create (once) and return the shared Echo instance. */
 export function getEcho() {
     if (!echo) {
         echo = createEcho();
@@ -37,8 +43,12 @@ export function getEcho() {
     return echo;
 }
 
-/** Tear down the connection (e.g. on logout). */
 export function disconnectEcho(): void {
+    setSocketId(null);
     echo?.disconnect();
     echo = null;
+}
+
+export function getSocketId(): string | null {
+    return currentSocketId;
 }

@@ -232,9 +232,11 @@ class MessageController extends Controller
         }
 
         try {
-            event($chat->type === 'direct'
+            $event = $chat->type === 'direct'
                 ? new NewPrivateMessage($message)
-                : new NewChatMessage($message));
+                : new NewChatMessage($message);
+
+            broadcast($event)->toOthers();
         } catch (\Throwable $th) {
             // a broadcasting outage must not fail the request
             report($th);

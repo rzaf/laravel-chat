@@ -359,6 +359,12 @@ class ChatController extends Controller
             return $chat;
         });
 
+        try {
+            event(new \App\Events\NewChat($chat));
+        } catch (\Throwable $th) {
+            report($th);
+        }
+
         return response()->json([
             'message' => ucfirst($chat->type) . ' created',
             'chat' => $this->findFormattedChat($user->id, $chat->id),

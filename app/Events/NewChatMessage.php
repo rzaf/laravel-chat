@@ -7,6 +7,7 @@ use App\Models\Message;
 use Illuminate\Broadcasting\InteractsWithSockets;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
@@ -16,7 +17,7 @@ use Illuminate\Queue\SerializesModels;
  *
  * NOTE: direct chats keep using NewPrivateMessage.
  */
-class NewChatMessage implements ShouldBroadcast
+class NewChatMessage implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 

@@ -82,6 +82,13 @@ class ChatMemberController extends Controller
                 $already[] = $user->username;
             }
         }
+        if (!empty($added)) {
+            try {
+                event(new \App\Events\NewChat($chat));
+            } catch (\Throwable $th) {
+                report($th);
+            }
+        }
 
         return response()->json([
             'message' => count($added) . ' member(s) added',

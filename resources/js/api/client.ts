@@ -2,23 +2,24 @@ import axios from 'axios';
 import type { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import useAuthStore from '@/stores/auth';
 import router from '@/router';
+import { getSocketId } from '@/realtime/echo'; // Import socket getter
 
-/**
- * Authenticated API client. Attaches the bearer token on every request and,
- * on a 401, clears the session and sends the user to the login page.
- *
- * The auth store is resolved lazily inside the interceptors so this module has
- * no side effects at import time (Pinia is guaranteed active by the time a
- * request actually fires).
- */
 export const apiClient: AxiosInstance = axios.create();
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
     const auth = useAuthStore();
     config.headers.Accept = 'application/json';
+    
     if (auth.user?.token) {
         config.headers.Authorization = `Bearer ${auth.user.token}`;
     }
+
+    // Attach the WebSocket socket ID if connected so ->toOthers() works
+    const socketId = getSocketId();
+    if (socketId) {
+        config.headers['X-Socket-ID'] = socketId;
+    }
+
     return config;
 });
 
