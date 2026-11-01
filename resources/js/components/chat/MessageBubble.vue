@@ -15,8 +15,9 @@ const props = defineProps<{
     message: string;
     time: string;
     chatType: ChatType;
-    /** Author's name — only rendered in group chats, for messages from other people. */
     senderName?: string;
+    senderProfile?: string;
+    senderSlug?: string;
     senderId?: number;
     updatedAt?: string;
     isSent?: boolean;
@@ -98,9 +99,15 @@ const isEdited = computed(() => {
         }" @contextmenu.prevent="emit('openMenu', $event)">
 
             <!-- Author (groups only) -->
-            <p v-if="showSender" class="px-3 pt-2 text-sm font-semibold truncate" :class="senderColor">
-                {{ senderName }}
-            </p>
+            <div v-if="showSender" class="flex items-center gap-1 pt-2 mx-2">
+                <Avatar class="size-5 shrink-0" :src="senderProfile || '/storage/default-profile.png'" />
+                <!-- todo: later change to open chat profile of user -->
+                <RouterLink :to="`/chats/${senderSlug ?? 'unknown'}`">
+                    <p v-if="showSender" class=" text-sm font-semibold truncate" :class="senderColor">
+                        {{ senderName }}
+                    </p>
+                </RouterLink>
+            </div>
 
             <!-- Forwarded header -->
             <div v-if="forwardedFrom" class="px-3 pt-2.5 text-xs"

@@ -142,6 +142,8 @@ const groups = computed<MessageGroup[]>(() => {
             forwardedFrom: item.forwarded_from,
             isSent: isMine(item),
             senderName: item.sender?.name,
+            senderProfile: item.sender?.profile_photo,
+            senderSlug: item.sender?.username,
             senderId: item.sender_id,
             attachments: item.attachments,
             attachments_count: item.attachments_count,
@@ -526,7 +528,7 @@ onBeforeUnmount(cancelRead);
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
                             :data-message-id="row.id" :message="row.text" :time="row.time" :updated-at="row.updatedAt"
-                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-id="row.senderId"
+                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-profile="row.senderProfile" :sender-slug="row.senderSlug" :sender-id="row.senderId"
                             :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
                             :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
                             :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"

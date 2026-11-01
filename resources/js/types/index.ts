@@ -135,6 +135,8 @@ export interface MessageRow {
     isSent: boolean;
     /** Author — shown above the text in group chats. */
     senderName?: string;
+    senderProfile?: string;
+    senderSlug?: string;
     senderId?: number;
     attachments?: Attachment[];
     attachments_count?: number;

@@ -133,9 +133,9 @@ export function useMessages() {
         // The user may have switched chats while the request was in flight;
         // don't leak the new message into another chat's timeline.
         if (slug === currentSlug) {
-            // append(message);
-            messages.value.push(message);
-            isChatEmpty.value = false;
+            append(message);
+            // messages.value.push(message);
+            // isChatEmpty.value = false;
         }
         return message;
     }
