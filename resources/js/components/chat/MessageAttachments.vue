@@ -8,7 +8,7 @@ import { regenerateMediaUrl } from '@/api';
 import BlurhashImage from './BlurhashImage.vue';
 import PhotoIcon from '@/assets/svgs/Photo.svg';
 import VideoIcon from '@/assets/svgs/Video.svg';
-
+import { createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 import DownloadIcon from '@/assets/svgs/Download.svg';
 
 const props = withDefaults(
@@ -45,6 +45,18 @@ const remainingMediaCount = computed(() => Math.max(0, mediaAttachments.value.le
 
 const videoThumbs = ref<Record<number, string>>({});
 const videoDims = ref<Record<number, { w: number; h: number }>>({});
+
+const galleryOverlayId = createOverlayId('photoswipe');
+
+function registerPhotoSwipeOverlay(): void {
+    registerOverlay(galleryOverlayId, 'overlay', () => {
+        lightbox?.pswp?.close();
+    });
+}
+
+function unregisterPhotoSwipeOverlay(): void {
+    unregisterOverlay(galleryOverlayId);
+}
 
 function makeVideoThumb(file: Attachment, url: string = getActiveUrl(file), retried = false) {
     const video = document.createElement('video');
@@ -151,7 +163,7 @@ async function handleMediaError(
     id: Number,
     event: Event
 ) {
-    const file :Attachment | undefined = props.attachments.find((f) => f.id == id);
+    const file: Attachment | undefined = props.attachments.find((f) => f.id == id);
     console.log('handleMediaError: ', file);
     if (file == undefined) return;
     const media = event.currentTarget as HTMLAudioElement | HTMLVideoElement;
@@ -279,7 +291,7 @@ function initPhotoSwipe() {
         gallery: galleryRef.value,
         children: 'a.pswp-media-item',
         pswpModule: () => import('photoswipe'),
-        
+
         // Animations
         showHideAnimationType: mediaAttachments.value.length > 1 ? 'fade' : 'zoom',
         showAnimationDuration: 450,
@@ -380,10 +392,10 @@ function initPhotoSwipe() {
             if (!file) return;
             if (handling) return;
             handling = true;
-            
+
             // Call your existing media fallback handler
             await handleMediaError(file.id, event);
-            
+
             const currentTime = video.currentTime;
             // Update PhotoSwipe data definition with the newly refreshed URL
             const freshUrl = getActiveUrl(file);
@@ -394,7 +406,7 @@ function initPhotoSwipe() {
 
             if (lightbox?.pswp?.currSlide?.content === content) {
                 video.currentTime = currentTime;
-                video.play().catch(() => {});
+                video.play().catch(() => { });
             }
             handling = false;
         };
@@ -402,15 +414,15 @@ function initPhotoSwipe() {
         content.element = container;
         video.src = content.data.src;
 
-video.addEventListener(
-    'loadedmetadata',
-    () => {
-        if (lightbox?.pswp?.currSlide?.content === content) {
-            video.play().catch(() => {});
-        }
-    },
-    { once: true }
-);
+        video.addEventListener(
+            'loadedmetadata',
+            () => {
+                if (lightbox?.pswp?.currSlide?.content === content) {
+                    video.play().catch(() => { });
+                }
+            },
+            { once: true }
+        );
         // video.play().catch(() => {}); // this line when is added the video double plays and is still played while exiting photoswipe
     });
 
@@ -437,6 +449,15 @@ video.addEventListener(
                 video.load();
                 video.remove();
             });
+    });
+
+
+    lightbox.on('afterInit', () => {
+        registerPhotoSwipeOverlay();
+    });
+
+    lightbox.on('destroy', () => {
+        unregisterPhotoSwipeOverlay();
     });
 
     lightbox.on('loadError', async (event: any) => {
@@ -491,6 +512,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+    unregisterPhotoSwipeOverlay();
     if (lightbox) {
         lightbox.destroy();
         lightbox = null;
@@ -539,22 +561,23 @@ function revealImage(fileId: number, event: Event) {
         <div v-if="mediaAttachments.length > 0" ref="galleryRef" class="w-full">
             <!-- SINGLE MEDIA ITEM -->
             <div v-if="mediaAttachments.length === 1">
-                <a v-for="(file, index) in mediaAttachments" :key="file.id" target="_blank"
-                    rel="noreferrer"
+                <a v-for="(file, index) in mediaAttachments" :key="file.id" target="_blank" rel="noreferrer"
                     class="pswp-media-item relative overflow-hidden rounded-lg bg-gray-400 dark:bg-gray-600 flex justify-center items-center group cursor-pointer block max-w-full"
                     :style="singleImageStyle(file)" :ref="(el: any) => observeAttachment(el, file)"
                     @click.prevent="handleMediaClick(file, index)">
                     <template v-if="isVideo(file.type)">
-                        <img v-if="videoThumbs[file.id]" :src="videoThumbs[file.id]" class="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
+                        <img v-if="videoThumbs[file.id]" :src="videoThumbs[file.id]"
+                            class="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
                         <div v-else class="absolute inset-0 bg-gray-500 animate-pulse"></div>
-                        <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/25 pointer-events-none">
+                        <div
+                            class="absolute inset-0 z-10 flex items-center justify-center bg-black/25 pointer-events-none">
                             <VideoIcon class="w-10 h-10 text-white drop-shadow" />
                         </div>
                     </template>
 
                     <template v-else-if="isImage(file.type)">
-                        <div v-if="downloading[file.id]" class="" >
-                            
+                        <div v-if="downloading[file.id]" class="">
+
                         </div>
                         <div v-if="downloading[file.id]"
                             class="absolute inset-0 z-10 bg-white/25 animate-pulse pointer-events-none"></div>
@@ -576,8 +599,7 @@ function revealImage(fileId: number, event: Event) {
 
                         <img v-if="isLoaded(file)" :src="getActiveUrl(file)"
                             class="w-full h-full object-cover opacity-0 transition-[opacity,scale] hover:scale-105 duration-200"
-                            @load="revealImage(file.id, $event)"
-                        />
+                            @load="revealImage(file.id, $event)" />
 
                         <div v-if="downloading[file.id] && !autoDownload"
                             class="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
@@ -598,16 +620,17 @@ function revealImage(fileId: number, event: Event) {
                 'grid-cols-2 aspect-[4/3]': mediaAttachments.length === 2,
                 'grid-cols-2 grid-rows-2 aspect-square': mediaAttachments.length >= 3,
             }">
-                <a v-for="(file, index) in visibleMedia" :key="file.id" target="_blank"
-                    rel="noreferrer"
+                <a v-for="(file, index) in visibleMedia" :key="file.id" target="_blank" rel="noreferrer"
                     class="pswp-media-item relative overflow-hidden bg-gray-700  group cursor-pointer w-full h-full block"
                     :class="[
                         mediaAttachments.length === 3 && index === 0 ? 'row-span-2' : '',
                     ]" :ref="(el: any) => observeAttachment(el, file)" @click.prevent="handleMediaClick(file, index)">
                     <template v-if="isVideo(file.type)">
-                        <img v-if="videoThumbs[file.id]" :src="videoThumbs[file.id]" class="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
+                        <img v-if="videoThumbs[file.id]" :src="videoThumbs[file.id]"
+                            class="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
                         <div v-else class="absolute inset-0 bg-gray-500 animate-pulse"></div>
-                        <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/25 pointer-events-none ">
+                        <div
+                            class="absolute inset-0 z-10 flex items-center justify-center bg-black/25 pointer-events-none ">
                             <VideoIcon class="w-10 h-10 text-white drop-shadow " />
                         </div>
                     </template>
@@ -633,8 +656,7 @@ function revealImage(fileId: number, event: Event) {
 
                         <img v-if="isLoaded(file)" :src="getActiveUrl(file)"
                             class="w-full h-full object-cover opacity-0 transition-[opacity,scale] hover:scale-105 duration-200 "
-                            @load="revealImage(file.id, $event)"
-                        />
+                            @load="revealImage(file.id, $event)" />
 
                         <div v-if="downloading[file.id] && !autoDownload"
                             class="absolute inset-0 bg-black/40 flex items-center justify-center z-20">
@@ -665,11 +687,8 @@ function revealImage(fileId: number, event: Event) {
                 class="overflow-hidden rounded-md flex justify-center align-middle"
                 :ref="(el: any) => observeAttachment(el, file)">
                 <div v-if="isAudio(file.type)" class="max-w-full w-96 block my-1">
-                    <audio controls preload="metadata" class="w-full" 
-                        @error="handleMediaError(file.id, $event)" 
-                        :src="getActiveUrl(file)"
-                        :type="file.type" 
-                    >
+                    <audio controls preload="metadata" class="w-full" @error="handleMediaError(file.id, $event)"
+                        :src="getActiveUrl(file)" :type="file.type">
                     </audio>
                 </div>
 
