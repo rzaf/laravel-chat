@@ -10,6 +10,7 @@ import PhotoIcon from '@/assets/svgs/Photo.svg';
 import VideoIcon from '@/assets/svgs/Video.svg';
 import { createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 import DownloadIcon from '@/assets/svgs/Download.svg';
+import AudioMessage from './AudioMessage.vue';
 
 const props = withDefaults(
     defineProps<{
@@ -682,15 +683,11 @@ function revealImage(fileId: number, event: Event) {
         </div>
 
         <!-- ================= NON-MEDIA ATTACHMENTS (DOCS/AUDIO) ================= -->
-        <div v-if="nonMediaAttachments.length > 0" class="flex flex-col gap-2">
+        <div v-if="nonMediaAttachments.length > 0" class="flex flex-col ">
             <div v-for="file in nonMediaAttachments" :key="file.id"
                 class="overflow-hidden rounded-md flex justify-center align-middle"
                 :ref="(el: any) => observeAttachment(el, file)">
-                <div v-if="isAudio(file.type)" class="max-w-full w-96 block my-1">
-                    <audio controls preload="metadata" class="w-full" @error="handleMediaError(file.id, $event)"
-                        :src="getActiveUrl(file)" :type="file.type">
-                    </audio>
-                </div>
+                <AudioMessage v-if="isAudio(file.type)" :file="file" :url="getActiveUrl(file)" class="my-1" />
 
                 <a v-else-if="isLoaded(file)" :href="getActiveUrl(file)" :download="file.name"
                     class="flex items-center gap-3 max-w-96 p-2.5 rounded-lg border w-full" :class="{
