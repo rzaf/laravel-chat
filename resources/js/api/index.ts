@@ -227,12 +227,12 @@ export async function sendMessage(
     return data.data;
 }
 
-/** Forward a message into any kind of chat. */
-export async function forwardMessageTo(
-    chat: ChatRef,
-    message: Pick<Message, 'id' | 'content'>,
-): Promise<Message> {
-    return sendMessage(chat, message.content ?? '', [], null, Number(message.id));
+export async function forwardMessage(messageId: number, chatIds: number[]): Promise<Message[]> {
+    const response = await apiClient.post<{ message: String, data: Message[] }>('/api/messages/bulkForward', {
+        message_id: messageId,
+        chat_ids: chatIds,
+    });
+    return response.data.data;
 }
 
 /** Newest-first page of messages of any kind of chat. */
@@ -276,18 +276,6 @@ export async function sendDirectMessage(
     return data.data;
 }
 
-/**
- * @deprecated direct chats only — prefer `forwardMessageTo`.
- * Forward an existing message to another user's direct chat.
- * The text is sent along with `forwarded_from_message_id` so the backend can
- * mark it as forwarded (and copy attachments, which cannot be re-uploaded here).
- */
-export async function forwardMessage(
-    username: string,
-    message: Pick<Message, 'id' | 'content'>,
-): Promise<Message> {
-    return sendDirectMessage(username, message.content ?? '', [], null, Number(message.id));
-}
 
 /** @deprecated direct chats only — prefer `getMessages` */
 export async function getDirectMessages(

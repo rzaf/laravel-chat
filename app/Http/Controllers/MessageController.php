@@ -362,6 +362,90 @@ class MessageController extends Controller
         return $this->createdResponse($message, $chat);
     }
 
+    /**
+     * Forward a message to multiple chats in a single request.
+     *
+     * @bodyParam message_id integer required The ID of the message being forwarded.
+     * @bodyParam chat_ids array required Array of target chat IDs.
+     */
+    public function bulkForward(Request $req, MediaService $mediaService)
+    {
+        $currentUser = $req->user();
+
+        $validated = $req->validate([
+            'message_id' => 'required|integer|exists:messages,id',
+            'chat_ids' => 'required|array|min:1',
+            'chat_ids.*' => 'required|integer|exists:chats,id',
+        ]);
+
+        $sourceMessage = Message::with(['media', 'chat'])->findOrFail($validated['message_id']);
+
+        // Verify user has access to the source message
+        $isMemberOfSource = $this->memberOf($currentUser->id, $sourceMessage->chat_id) !== null;
+        abort_if(
+            !$isMemberOfSource && $sourceMessage->chat->is_private,
+            403,
+            'You cannot forward a message from a chat you are not part of'
+        );
+
+        $forwardedFromMessageId = $sourceMessage->forwarded_from_message_id ?? $sourceMessage->id;
+        $content = $sourceMessage->content;
+        $createdMessages = [];
+
+        DB::transaction(function () use ($validated, $currentUser, $sourceMessage, $forwardedFromMessageId, $content, $mediaService, &$createdMessages) {
+            $targetChats = Chat::whereIn('id', $validated['chat_ids'])->get();
+
+            foreach ($targetChats as $chat) {
+                $member = $this->memberOf($currentUser->id, $chat->id);
+                abort_if(!$member, 403, 'You are not a member of target chat: ' . $chat->id);
+
+                abort_if(
+                    !$this->canSendIn($chat, $member),
+                    403,
+                    'You cannot send messages in target chat: ' . $chat->id
+                );
+
+                $message = Message::create([
+                    'chat_id' => $chat->id,
+                    'sender_id' => $currentUser->id,
+                    'content' => $content,
+                    'reply_to_id' => null,
+                    'forwarded_from_message_id' => $forwardedFromMessageId,
+                ]);
+
+                if ($sourceMessage->media->isNotEmpty()) {
+                    foreach ($sourceMessage->media as $sourceMedia) {
+                        $mediaService->link($sourceMedia, $message);
+                    }
+                }
+
+                $message->load(array_merge(['chat'], $this->messageRelations($chat)));
+
+                // if ($chat->type === 'direct' ) {
+                //     $message->chat->name = $message->chat->name;
+                //     $message->chat->slug = $message->chat->slug;
+                //     $message->chat->direct_user_id = ;
+                // }
+
+                try {
+                    $event = $chat->type === 'direct'
+                        ? new NewPrivateMessage($message)
+                        : new NewChatMessage($message);
+                    broadcast($event)->toOthers();
+                } catch (\Throwable $th) {
+                    report($th);
+                }
+
+                $createdMessages[] = $message;
+            }
+        });
+
+        return response()->json([
+            'message' => 'Messages forwarded successfully',
+            'data' => MessageResource::collection(collect($createdMessages)),
+        ], 201);
+    }
+
     /* ------------------------------------------------------------------
      | Edit / read / delete (work for every chat type)
      * ----------------------------------------------------------------- */

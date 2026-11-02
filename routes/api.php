@@ -49,6 +49,7 @@ Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], functio
     // groups & channels — addressed by the chat slug
     Route::get('/chats/{slug}', [MessageController::class, 'getChatMessages']);
     Route::post('/chats/{slug}', [MessageController::class, 'storeChatMessage']);
+    Route::post('/bulkForward', [MessageController::class, 'bulkForward']);
 
     // any chat type
     Route::put('/{id}', [MessageController::class, 'update']);

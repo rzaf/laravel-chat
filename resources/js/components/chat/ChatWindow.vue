@@ -9,7 +9,7 @@ import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useChatReadState } from '@/composables/useChatReadState';
 import { useMessageActions } from '@/composables/useMessageActions';
 import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { forwardMessageTo, joinChat, setChatMute } from '@/api/index.ts';
+import { forwardMessage, joinChat, setChatMute } from '@/api/index.ts';
 import { isDateSeparator } from '@/types';
 import type { Chat, ChatType, Message, MessageGroup } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
@@ -287,44 +287,29 @@ async function handleSend(): Promise<void> {
 
 /* ---------------------------------------------------------------- forward */
 
-const forwardsInFlight = new Set<string>();
-
-async function forwardTo(targetChat: Chat, msg: Message): Promise<void> {
-    const slug = targetChat.slug;
-    if (!slug) return;
-    const key = `${msg.id}:${slug}`;
-    if (forwardsInFlight.has(key)) return;
-    forwardsInFlight.add(key);
-    try {
-        const isCurrentChat = slug === props.chat.slug;
-        const sent = isCurrentChat
-            ? await send(slug, msg.content ?? '', [], null, Number(msg.id))
-            : await forwardMessageTo({ slug, type: targetChat.type }, msg);
-
-        updateLastMessage(targetChat.id, sent);
-        if (isCurrentChat) {
-            await scrollToBottomAfterRender();
-        }
-    } finally {
-        forwardsInFlight.delete(key);
-    }
-}
-
 async function handleForwardMessage(targetChats: Chat[], msgToForward: Message): Promise<void> {
     if (msgToForward.id == null) return;
-    // skip chats we can't post to (e.g. channels where we're not an admin)
-    const targets = targetChats.filter((c) => c.slug && c.can_send !== false);
+    const targets = targetChats.filter((c) => c.id != null && c.can_send !== false);
+    if (targets.length === 0) return;
 
-    const results = await Promise.allSettled(targets.map((chat) => forwardTo(chat, msgToForward)));
-    results.forEach((r, i) => {
-        if (r.status === 'rejected') {
-            console.error(`Failed to forward message to ${targets[i].slug}`, r.reason);
+    try {
+        const chatIds = targets.map((c) => Number(c.id));
+        await forwardMessage(Number(msgToForward.id), chatIds);
+
+        targets.forEach((chat) => {
+            updateLastMessage(chat.id, {
+                content: msgToForward.content ?? '',
+                created_at: new Date().toISOString(),
+            });
+        });
+        if (targets.some((c) => c.slug === props.chat.slug)) {
+            await scrollToBottomAfterRender();
         }
-    });
-
-    const delivered = targets.filter((_, i) => results[i].status === 'fulfilled');
-    if (targets.length === 1 && delivered.length === 1 && delivered[0].slug !== props.chat.slug) {
-        router.push(`/chats/${delivered[0].slug}`);
+        if (targets.length === 1 && targets[0].slug !== props.chat.slug) {
+            router.push(`/chats/${targets[0].slug}`);
+        }
+    } catch (error) {
+        console.error('Failed to forward message', error);
     }
 }
 

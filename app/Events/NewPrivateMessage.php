@@ -22,7 +22,7 @@ class NewPrivateMessage implements ShouldBroadcastNow
     {
         $recipient = $this->message->chat
             ->members()
-            // ->whereKeyNot($this->message->sender_id)
+            ->whereKeyNot($this->message->sender_id)
             ->first();
 
         return [
