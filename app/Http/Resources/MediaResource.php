@@ -39,6 +39,7 @@ class MediaResource extends JsonResource
             'height' => $this->height,
             'blurhash' => $this->blurhash,
             'created_at' => $this->created_at,
+            'message_id' => $this->model_id,
         ];
     }
 }

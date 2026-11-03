@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ChecksChatAccess;
+use App\Http\Resources\MediaResource;
 use App\Http\Resources\UserResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
 use App\Models\ChatUserSetting;
+use App\Models\Media;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -645,6 +647,131 @@ class ChatController extends Controller
         return response()->json([
             'message' => 'Chat removed from your list and history cleared.',
         ], 200);
+    }
+
+
+
+    /** Paginated attachments of a chat, filtered by attachment MIME type or message type. */
+    protected function mediaResponse(Request $request, Chat $chat, string $type)
+    {
+        $types = ['photos', 'videos', 'audios', 'files', 'audio-messages', 'video-messages'];
+        abort_unless(in_array($type, $types, true), 404, 'Invalid media type');
+
+        $currentUser = $request->user();
+        $settings = ChatUserSetting::where('user_id', $currentUser->id)
+            ->where('chat_id', $chat->id)
+            ->first();
+
+        $query = Media::query()
+            ->join('messages', function ($join) {
+                $join->on('messages.id', '=', 'medias.model_id')
+                    ->where('medias.model_type', Message::class);
+            })
+            ->where('messages.chat_id', $chat->id)
+            ->whereNull('messages.deleted_at')
+            ->where('medias.collection', 'attachments')
+            // Exclude messages deleted individually by this user ("Delete for Me").
+            ->whereNotExists(function ($subQuery) use ($currentUser) {
+                $subQuery->select(DB::raw(1))
+                    ->from('message_user_deletions')
+                    ->whereColumn('message_user_deletions.message_id', 'messages.id')
+                    ->where('message_user_deletions.user_id', $currentUser->id);
+            })
+            ->select('medias.*');
+
+        // Respect the user's cleared chat history, just like the messages endpoint.
+        if ($settings && $settings->cleared_at) {
+            $query->where('messages.created_at', '>', $settings->cleared_at);
+        }
+
+        switch ($type) {
+            case 'photos':
+                $query->where('messages.type', 'normal')
+                    ->where('medias.mime_type', 'like', 'image/%');
+                break;
+            case 'videos':
+                $query->where('messages.type', 'normal')
+                    ->where('medias.mime_type', 'like', 'video/%');
+                break;
+            case 'audios':
+                $query->where('messages.type', 'normal')
+                    ->where('medias.mime_type', 'like', 'audio/%');
+                break;
+            case 'files':
+                // Documents and other attachments that are not images, videos, or audio files.
+                $query->where('messages.type', 'normal')
+                    ->where(function ($q) {
+                        $q->whereNull('medias.mime_type')
+                            ->orWhere(function ($q) {
+                                $q->where('medias.mime_type', 'not like', 'image/%')
+                                    ->where('medias.mime_type', 'not like', 'video/%')
+                                    ->where('medias.mime_type', 'not like', 'audio/%');
+                            });
+                    });
+                break;
+            case 'audio-messages':
+                $query->where('messages.type', 'audio');
+                break;
+            case 'video-messages':
+                $query->where('messages.type', 'video');
+                break;
+        }
+
+        return MediaResource::collection(
+            $query->orderByDesc('messages.created_at')
+                ->orderByDesc('messages.id')
+                ->orderByDesc('medias.id')
+                ->simplePaginate(20)
+        );
+    }
+
+    /** Attachments and media messages in a direct chat, group, or channel. 
+     * 
+     * @urlParam slug string chat slug.
+     * @queryParam type required The media category. Enum: photos,videos,audios,files,audio-messages,video-messages Example: photos
+     */
+    public function getChatMedia(Request $request, string $slug)
+    {
+        $currentUser = $request->user();
+        // Query parameters
+        \Validator::make($request->query(), [
+            'type' => 'required|in:photos,videos,audios,files,audio-messages,video-messages',
+        ])->validate();
+        $type = $request->type;
+        // Group/channel slugs and usernames share the same identifier space.
+        $chat = Chat::query()
+            ->where('slug', $slug)
+            ->whereIn('type', ['group', 'channel'])
+            ->first();
+
+        if ($chat) {
+            $member = $this->memberOf($currentUser->id, $chat->id);
+            abort_if(!$member && $chat->is_private, 403, 'Not Allowed');
+
+            return $this->mediaResponse($request, $chat, $type);
+        }
+
+        // If it is not a group/channel slug, treat it as a direct-chat username.
+        $otherUser = User::where('username', $slug)->firstOrFail();
+        abort_if($currentUser->id === $otherUser->id, 400, 'You cannot message yourself');
+
+        $chat = Chat::query()
+            ->where('type', 'direct')
+            ->whereHas('members', function ($query) use ($currentUser) {
+                $query->where('users.id', $currentUser->id);
+            })
+            ->whereHas('members', function ($query) use ($otherUser) {
+                $query->where('users.id', $otherUser->id);
+            })
+            ->first();
+
+        if ($chat === null) {
+            return MediaResource::collection(
+                Media::query()->whereRaw('1 = 0')->simplePaginate(20)
+            );
+        }
+
+        return $this->mediaResponse($request, $chat, $type);
     }
 
 

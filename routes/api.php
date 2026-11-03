@@ -74,6 +74,9 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
     Route::post('/{chatId}/join', [ChatController::class, 'join'])->whereNumber('chatId');      // join a public chat
     Route::post('/{chatId}/invite-link', [ChatController::class, 'regenerateInvite'])->whereNumber('chatId');
 
+    // Media from direct chats (username), groups, and channels (slug)
+    Route::get('/{slug}/media', [ChatController::class, 'getChatMedia']);
+
     // members of a group / channel
     Route::get('/{chatId}/members', [ChatMemberController::class, 'index'])->whereNumber('chatId');
     Route::get('/{chatId}/membersInTheContact', [ChatMemberController::class, 'membersInTheContact'])->whereNumber('chatId');
