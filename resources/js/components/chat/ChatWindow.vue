@@ -227,11 +227,11 @@ async function goToBottom(): Promise<void> {
 /* ------------------------------------------------------------ send / edit */
 
 /** Reflect a just-sent message in the chat list preview. */
-function updateLastMessage(chatId: number | null | undefined, sent: Message): void {
+function updateLastMessage(chatId: number | null | undefined, sent: Message, fallbackContent = ''): void {
     if (chatId == null) return;
     chatStore.setLastMessage({
         chat_id: chatId,
-        content: sent.content,
+        content: sent.content || fallbackContent,
         created_at: sent.created_at,
     });
 }
@@ -283,6 +283,58 @@ async function handleSend(): Promise<void> {
     } finally {
         sending.value = false;
     }
+}
+
+/** Send a recorded audio/video message as a standalone attachment. */
+async function handleSendRecording(file: File, kind: 'audio' | 'video', onResult: (sent: boolean) => void): Promise<void> {
+    const slug = props.chat.slug;
+    if (!slug || !canSend.value || userExists.value === false || sending.value || editingMessage.value) {
+        onResult(false);
+        return;
+    }
+
+    const fallbackContent = kind === 'audio' ? 'Voice message' : 'Video message';
+    sending.value = true;
+    let sendConfirmed = false;
+    try {
+        const replyToId = replyingToMessage.value?.id != null ? Number(replyingToMessage.value.id) : null;
+        const message = await send(slug, '', [file], replyToId);
+        sendConfirmed = true;
+        onResult(true);
+        const messageChatId = props.chat.id ?? message?.chat?.id;
+
+        // First message of a brand-new chat: register it in the list.
+        if (props.chat.id == null) {
+            chatStore.addChat(
+                message?.chat?.id || 0,
+                slug,
+                message?.chat?.name || slug,
+                fallbackContent,
+                props.chat.direct_user_id,
+                chatType.value,
+            );
+            chatStore.selectChatBySlug(slug);
+        }
+
+        replyingToMessage.value = null;
+        updateLastMessage(messageChatId, message, fallbackContent);
+        await scrollToBottomAfterRender();
+        if (messageChatId != null) chatStore.seenAll(messageChatId);
+    } catch (error) {
+        console.error(`Failed to send ${kind} message`, error);
+        // Keep the recording available only when the API request itself failed.
+        if (!sendConfirmed) onResult(false);
+    } finally {
+        sending.value = false;
+    }
+}
+
+function handleSendAudio(file: File, onResult: (sent: boolean) => void): Promise<void> {
+    return handleSendRecording(file, 'audio', onResult);
+}
+
+function handleSendVideo(file: File, onResult: (sent: boolean) => void): Promise<void> {
+    return handleSendRecording(file, 'video', onResult);
 }
 
 /* ---------------------------------------------------------------- forward */
@@ -376,7 +428,10 @@ function focusComposer(): void {
 
 watch(
     () => props.chat.slug,
-    (slug) => {
+    (slug, previousSlug) => {
+        if (previousSlug !== undefined && slug !== previousSlug) {
+            composerRef.value?.cancelRecording();
+        }
         resetComposerContext();
         focusComposer();
         if (slug) {
@@ -513,11 +568,11 @@ onBeforeUnmount(cancelRead);
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
                             :data-message-id="row.id" :message="row.text" :time="row.time" :updated-at="row.updatedAt"
-                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-profile="row.senderProfile" :sender-slug="row.senderSlug" :sender-id="row.senderId"
-                            :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
-                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
-                            :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
-                            :is-menu-open="activeMenuMessage?.key === row.key"
+                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-profile="row.senderProfile"
+                            :sender-slug="row.senderSlug" :sender-id="row.senderId" :attachments="row.attachments"
+                            :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to"
+                            :reply-author="replyAuthorOf(row)" :forwarded-from="messageOf(row)?.forwarded_from"
+                            @jump-to-reply="jumpToMessage" :is-menu-open="activeMenuMessage?.key === row.key"
                             @open-menu="handleOpenMessageMenu(row, $event)" />
                     </section>
                 </div>
@@ -567,7 +622,8 @@ onBeforeUnmount(cancelRead);
         </div>
 
         <MessageComposer v-if="canSend" ref="composerRef" v-model="draft" :sending="sending" :attachments="attachments"
-            @send="handleSend" />
+            :recording-disabled="!!editingMessage" @send="handleSend" @send-audio="handleSendAudio"
+            @send-video="handleSendVideo" />
 
         <!-- Previewing a public group / channel -->
         <div v-else-if="canJoin"

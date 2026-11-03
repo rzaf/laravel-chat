@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, useTemplateRef, watch, computed } from 'vue';
+import { nextTick, onMounted, onUnmounted, useTemplateRef, watch, computed, ref } from 'vue';
 import PaperClipIcon from '@/assets/svgs/PaperClip.svg';
 import MusicIcon from '@/assets/svgs/Music.svg';
 import VideoIcon from '@/assets/svgs/Video.svg';
@@ -7,14 +7,21 @@ import DocumentTextIcon from '@/assets/svgs/DocumentText.svg';
 import PaperAirplaneIcon from '@/assets/svgs/PaperAirplane.svg';
 import EmojiPicker from './EmojiPicker.vue';
 import EmojiAutoPicker from './EmojiAutoPicker.vue';
+import VoiceVideoRecorder from './VoiceVideoRecorder.vue';
 
 const model = defineModel<string>({ default: '' });
-const emit = defineEmits<{ (e: 'send'): void }>();
-const props = defineProps<{ sending?: boolean, attachments: File[] }>();
+const emit = defineEmits<{
+    (e: 'send'): void;
+    (e: 'sendAudio', file: File, onResult: (sent: boolean) => void): void;
+    (e: 'sendVideo', file: File, onResult: (sent: boolean) => void): void
+}>();
+const props = defineProps<{ sending?: boolean, attachments: File[], recordingDisabled?: boolean }>();
 
 const textareaRef = useTemplateRef<HTMLTextAreaElement>('textareaRef');
 const autoPickerRef = useTemplateRef<InstanceType<typeof EmojiAutoPicker>>('autoPickerRef');
 const fileInputRef = useTemplateRef<HTMLInputElement>('fileInputRef');
+const recorderRef = useTemplateRef<InstanceType<typeof VoiceVideoRecorder>>('recorderRef');
+const recordingActive = ref(false);
 
 // Cache object URLs to properly clean them up and prevent memory leaks
 const objectUrlMap = new WeakMap<File, string>();
@@ -140,8 +147,12 @@ function handleEmojiSelect(emoji: string): void {
     });
 }
 
+function handleRecordingState(active: boolean): void {
+    recordingActive.value = active;
+}
+
 function submit(): void {
-    if (!props.sending && (model.value.trim() || props.attachments.length)) {
+    if (!props.sending && !recordingActive.value && (model.value.trim() || props.attachments.length)) {
         emit('send');
     }
 }
@@ -173,7 +184,11 @@ function focus(): void {
     });
 }
 
-defineExpose({ focus });
+function cancelRecording(): void {
+    recorderRef.value?.cancelRecording();
+}
+
+defineExpose({ focus, cancelRecording });
 
 onMounted(() => {
     if (canAutoFocus()) {
@@ -197,15 +212,15 @@ onUnmounted(() => {
 
         <input ref="fileInputRef" type="file" multiple hidden @change="handleFileInputChange" />
 
-        <button type="button" aria-label="Attach file"
-            class="h-10 p-1.5 ml-2 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full cursor-pointer"
+        <button type="button" aria-label="Attach file" :disabled="sending || recordingActive"
+            class="h-10 p-1.5 ml-2 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
             @click="fileInputRef?.click()">
             <PaperClipIcon class="h-full stroke-gray-800 dark:stroke-gray-300" />
         </button>
 
-        <EmojiPicker @select="handleEmojiSelect" />
+        <EmojiPicker v-if="!recordingActive" @select="handleEmojiSelect" />
 
-        <textarea ref="textareaRef" v-model="model" placeholder="Message..." :disabled="sending"
+        <textarea ref="textareaRef" v-model="model" placeholder="Message..." :disabled="sending || recordingActive"
             class="w-full h-[40px] max-h-40 overflow-y-auto scrollable p-2 px-4 rounded-lg outline-none resize-none dark:bg-transparent disabled:cursor-not-allowed"
             @input="autoResize" @keydown="handleKeydown" @paste="handlePaste" />
 
@@ -236,10 +251,14 @@ onUnmounted(() => {
             </div>
         </div>
 
+        <VoiceVideoRecorder ref="recorderRef" :disabled="!!props.sending || !!props.recordingDisabled"
+            @recording-state="handleRecordingState" @send-audio="(file, onResult) => emit('sendAudio', file, onResult)"
+            @send-video="(file, onResult) => emit('sendVideo', file, onResult)" />
+
         <button type="submit" aria-label="Send message"
-            :disabled="sending || (!model.trim() && !props.attachments.length)"
-            class="h-10 p-1.5 ml-2 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-20">
-            <PaperAirplaneIcon class="h-full stroke-gray-800 dark:stroke-gray-300" />
+            :disabled="sending || recordingActive || (!model.trim() && !props.attachments.length)"
+            class="grid size-10 shrink-0 place-items-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40">
+            <PaperAirplaneIcon class="size-5" />
         </button>
 
     </form>

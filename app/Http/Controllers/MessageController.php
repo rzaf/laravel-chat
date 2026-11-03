@@ -33,6 +33,7 @@ class MessageController extends Controller
         'gif',
         'png',
         'mp3',
+        'webm',
         'mp4',
         'pdf',
         'doc',
