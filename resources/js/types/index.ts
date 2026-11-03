@@ -38,6 +38,7 @@ export interface Chat {
     type?: ChatType;
     created_at?: string;
     last_message?: string | null;
+    last_message_type?: MessageType | null;
     last_message_created_at?: string | null;
     last_read_at?: string | null;
     unseen_messages_count?: number;
@@ -95,10 +96,13 @@ export interface Attachment {
     created_at: string;
 }
 
+export type MessageType = 'normal' | 'audio' | 'video';
+
 export interface Message {
     id?: number;
     chat_id?: number;
     content: string;
+    type: MessageType;
     sender_id?: number;
     sender?: User;
     created_at: string;
@@ -129,6 +133,7 @@ export interface MessageRow {
     id?: string;
     key: string | number;
     text: string;
+    type: MessageType;
     time: string;
     updatedAt?: string;
     forwardedFrom?: Chat;

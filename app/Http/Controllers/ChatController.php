@@ -114,6 +114,12 @@ class ChatController extends Controller
                     CASE 
                         WHEN chat_user_settings.cleared_at IS NOT NULL AND latest_msg.created_at <= chat_user_settings.cleared_at 
                         THEN NULL 
+                        ELSE latest_msg.type 
+                    END as last_message_type'),
+                DB::raw('
+                    CASE 
+                        WHEN chat_user_settings.cleared_at IS NOT NULL AND latest_msg.created_at <= chat_user_settings.cleared_at 
+                        THEN NULL 
                         ELSE latest_msg.created_at 
                     END as last_message_created_at'),
                 'latest_msg.sender_id as last_message_sender_id',
@@ -323,9 +329,14 @@ class ChatController extends Controller
             'name' => 'required|string|max:255',
             'description' => 'nullable|string|max:512',
             'slug' => [
-                'nullable', 'string', 'min:3', 'max:127', 'regex:/^[A-Za-z0-9_-]+$/',
+                'nullable',
+                'string',
+                'min:3',
+                'max:127',
+                'regex:/^[A-Za-z0-9_-]+$/',
                 'not_in:' . self::RESERVED_SLUGS,
-                'unique:chats,slug', 'unique:users,username',
+                'unique:chats,slug',
+                'unique:users,username',
             ],
             'is_private' => 'sometimes|boolean',
             'is_readonly' => 'sometimes|boolean',
@@ -387,7 +398,11 @@ class ChatController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'description' => 'sometimes|nullable|string|max:512',
             'slug' => [
-                'sometimes', 'string', 'min:3', 'max:127', 'regex:/^[A-Za-z0-9_-]+$/',
+                'sometimes',
+                'string',
+                'min:3',
+                'max:127',
+                'regex:/^[A-Za-z0-9_-]+$/',
                 'not_in:' . self::RESERVED_SLUGS,
                 Rule::unique('chats', 'slug')->ignore($chat->id),
                 'unique:users,username',
@@ -453,8 +468,12 @@ class ChatController extends Controller
                     )', [Chat::class]);
             })
             ->select([
-                'chats.id', 'chats.name', 'chats.slug', 'chats.type',
-                'chats.description', 'chats.created_at',
+                'chats.id',
+                'chats.name',
+                'chats.slug',
+                'chats.type',
+                'chats.description',
+                'chats.created_at',
                 'chat_media.id as profile_id',
             ])
             ->selectSub(function ($q) {
@@ -505,7 +524,7 @@ class ChatController extends Controller
             ->orderByDesc('chats.created_at')
             ->simplePaginate(20);
 
-        $page->getCollection()->transform(fn ($chat) => $this->formatPublicChat($chat));
+        $page->getCollection()->transform(fn($chat) => $this->formatPublicChat($chat));
 
         return $page;
     }

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useDateFormat } from '@vueuse/core';
-import type { Attachment, Chat, ChatType, Message } from '@/types';
+import type { Attachment, Chat, ChatType, Message, MessageType } from '@/types';
 import MessageAttachments from '@/components/chat/MessageAttachments.vue';
 import PaperClipIcon from '@/assets/svgs/PaperClip.svg';
 import MegaphoneIcon from '@/assets/svgs/Megaphone.svg';
@@ -13,6 +13,7 @@ import Avatar from '@/components/chat/Avatar.vue';
 const props = defineProps<{
     id?: number;
     message: string;
+    type: MessageType;
     time: string;
     chatType: ChatType;
     senderName?: string;
@@ -156,9 +157,9 @@ const isEdited = computed(() => {
 
             <MessageAttachments :attachments="attachments" :is-sent="isSent" />
 
-            <div class="flex flex-col p-2.5">
-                <p v-if="message" class="pb-1 text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-                <div class="flex items-center gap-1.5 self-end ml-2 mt-1 text-xs leading-none opacity-80">
+            <div class="flex flex-col p-2 px-2.5">
+                <p v-if="message" class="text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
+                <div class="flex items-center gap-1.5 self-end ml-2 text-xs leading-none opacity-80">
                     <span v-if="isEdited" class="italic text-[10px] opacity-75">edited</span>
                     <span>{{ useDateFormat(time, 'HH:mm A') }}</span>
                 </div>

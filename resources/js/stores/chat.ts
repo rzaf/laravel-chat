@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { getChatList, getPublicChat } from '@/api';
-import type { Chat, ChatType, Message } from '@/types';
+import type { Chat, ChatType, Message, MessageType } from '@/types';
 import useAuthStore from '@/stores/auth';
 
 function timestamp(value: string | null | undefined): number {
@@ -140,6 +140,7 @@ export default defineStore('chat', () => {
         const chat = findChat(newMessage.chat_id);
         if (chat) {
             chat.last_message = newMessage.content;
+            chat.last_message_type = newMessage.type || 'normal';
             chat.last_message_created_at = newMessage.created_at;
             chat.last_message_is_mine = true;
             reorder();
@@ -153,6 +154,7 @@ export default defineStore('chat', () => {
         lastMessage: string,
         directUserId: number | null = null,
         type: ChatType = 'direct',
+        lastMessageType: MessageType = 'normal',
     ) {
         if (!chatList.value) {
             return;
@@ -167,6 +169,7 @@ export default defineStore('chat', () => {
             slug,
             name: name,
             last_message: lastMessage,
+            last_message_type: lastMessageType,
             direct_user_id: directUserId,
             last_message_created_at: now,
             created_at: now,

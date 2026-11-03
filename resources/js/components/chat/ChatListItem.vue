@@ -24,6 +24,7 @@ const preview = computed(() => {
     if (props.chat.is_typing) return 'typing…';
     if (props.chat.draft) return props.chat.draft;
     if (props.chat.last_message) return props.chat.last_message;
+    if (props.chat.last_message_type != 'normal') return props.chat.last_message_type === 'audio' ? 'Voice message' : 'Video message';
     if (attachments.value > 0) return `${attachments.value} ${attachments.value === 1 ? 'file' : 'files'}`;
     return 'No messages yet';
 });

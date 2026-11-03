@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { isAxiosError } from 'axios';
 import { deleteMessage, getMessages, sendMessage, updateMessage } from '@/api';
 import { groupMessagesByDate } from '@/helpers/messageGrouping';
-import type { ChatType, Message } from '@/types';
+import type { ChatType, Message, MessageType } from '@/types';
 
 const PAGE_SIZE = 20;
 const MAX_HISTORY_PAGES = 50;
@@ -125,8 +125,9 @@ export function useMessages() {
         attachments: File[] = [],
         replyToId: number | null = null,
         forwardedFromMessageId: number | null = null,
+        type: MessageType = 'normal'
     ): Promise<Message> {
-        const message = await sendMessage({ slug, type: currentType }, content, attachments, replyToId, forwardedFromMessageId);
+        const message = await sendMessage({ slug, type: currentType }, content, attachments, replyToId, forwardedFromMessageId, type);
         if (message.attachments != null) {
             message.attachments_count = message.attachments.length;
         }

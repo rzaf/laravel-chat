@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignId('chat_id')->constrained('chats');
             $table->foreignId('sender_id')->constrained('users');
             $table->string('content', 1024);
+            $table->enum('type', ['normal', 'audio', 'video'])->default('normal');
 
             $table->foreignId('reply_to_id')->nullable()->constrained('messages')->nullOnDelete();
             $table->foreignId('forwarded_from_message_id')->nullable()->constrained('messages')->nullOnDelete();

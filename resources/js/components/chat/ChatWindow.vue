@@ -137,6 +137,7 @@ const groups = computed<MessageGroup[]>(() => {
             id: String(item.id),
             key: item.id ?? `m-${index}`,
             text: item.content,
+            type: item.type,
             time: item.created_at,
             updatedAt: item.updated_at,
             forwardedFrom: item.forwarded_from,
@@ -232,6 +233,7 @@ function updateLastMessage(chatId: number | null | undefined, sent: Message, fal
     chatStore.setLastMessage({
         chat_id: chatId,
         content: sent.content || fallbackContent,
+        type: sent.type || 'normal',
         created_at: sent.created_at,
     });
 }
@@ -293,12 +295,12 @@ async function handleSendRecording(file: File, kind: 'audio' | 'video', onResult
         return;
     }
 
-    const fallbackContent = kind === 'audio' ? 'Voice message' : 'Video message';
+    // const fallbackContent = kind === 'audio' ? 'Voice message' : 'Video message';
     sending.value = true;
     let sendConfirmed = false;
     try {
         const replyToId = replyingToMessage.value?.id != null ? Number(replyingToMessage.value.id) : null;
-        const message = await send(slug, '', [file], replyToId);
+        const message = await send(slug, '', [file], replyToId, null, kind);
         sendConfirmed = true;
         onResult(true);
         const messageChatId = props.chat.id ?? message?.chat?.id;
@@ -309,15 +311,16 @@ async function handleSendRecording(file: File, kind: 'audio' | 'video', onResult
                 message?.chat?.id || 0,
                 slug,
                 message?.chat?.name || slug,
-                fallbackContent,
+                '',
                 props.chat.direct_user_id,
                 chatType.value,
+                kind,
             );
             chatStore.selectChatBySlug(slug);
         }
 
         replyingToMessage.value = null;
-        updateLastMessage(messageChatId, message, fallbackContent);
+        updateLastMessage(messageChatId, message);
         await scrollToBottomAfterRender();
         if (messageChatId != null) chatStore.seenAll(messageChatId);
     } catch (error) {
@@ -567,7 +570,7 @@ onBeforeUnmount(cancelRead);
                             </span>
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
-                            :data-message-id="row.id" :message="row.text" :time="row.time" :updated-at="row.updatedAt"
+                            :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time" :updated-at="row.updatedAt"
                             :is-sent="row.isSent" :sender-name="row.senderName" :sender-profile="row.senderProfile"
                             :sender-slug="row.senderSlug" :sender-id="row.senderId" :attachments="row.attachments"
                             :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to"

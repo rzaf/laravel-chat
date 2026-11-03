@@ -7,6 +7,7 @@ import type {
     ChatType,
     Contact,
     Message,
+    MessageType,
     MuteDuration,
     PublicChat,
     User,
@@ -205,8 +206,10 @@ export async function sendMessage(
     attachments: File[] = [],
     replyToId: number | null = null,
     forwardedFromMessageId: number | null = null,
+    type: MessageType = 'normal'
 ): Promise<Message> {
     const form = new FormData();
+    form.append('type', type);
     if (content) {
         form.append('content', content);
     }

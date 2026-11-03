@@ -17,6 +17,7 @@ class MessageResource extends JsonResource
         return [
             'id' => $this->id,
             'content' => $this->content,
+            'type' => $this->type,
             'sender_id' => $this->sender_id,
             // Only present when the `sender` relation is loaded (groups / channels need the author).
             'sender' => $this->when(

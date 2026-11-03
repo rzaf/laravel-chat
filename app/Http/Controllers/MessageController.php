@@ -144,9 +144,16 @@ class MessageController extends Controller
 
     protected function validateMessage(Request $req): array
     {
+        $isMediaMessage = in_array($req->input('type'), ['audio', 'video'], true);
+
         return $req->validate([
-            'content' => 'required_without_all:attachments,forwarded_from_message_id|string|max:1024',
-            'attachments' => 'nullable|array',
+            'type' => 'required|in:normal,audio,video',
+            'content' => $isMediaMessage
+                ? 'prohibited'
+                : 'required_without_all:attachments,forwarded_from_message_id|string|max:1024',
+            'attachments' => $isMediaMessage
+                ? 'required|array|size:1'
+                : 'nullable|array',
             'attachments.*' => 'file|max:102400|mimes:' . implode(',', static::$mimes),
             'reply_to_id' => 'nullable|exists:messages,id',
             'forwarded_from_message_id' => 'nullable|exists:messages,id',
@@ -196,6 +203,7 @@ class MessageController extends Controller
             'chat_id' => $chat->id,
             'sender_id' => $currentUser->id,
             'content' => $content,
+            'type' => $validated['type'],
             'reply_to_id' => $validated['reply_to_id'] ?? null,
             'forwarded_from_message_id' => $forwardedFromMessageId,
         ]);
@@ -410,6 +418,7 @@ class MessageController extends Controller
                     'chat_id' => $chat->id,
                     'sender_id' => $currentUser->id,
                     'content' => $content,
+                    'type' => $sourceMessage->type,
                     'reply_to_id' => null,
                     'forwarded_from_message_id' => $forwardedFromMessageId,
                 ]);
