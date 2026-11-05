@@ -73,7 +73,7 @@ class ChatController extends Controller
                     ->where('profile_media.collection', 'profiles')
                     ->whereRaw('profile_media.id = (
                         SELECT MAX(m.id) FROM medias m
-                        WHERE m.model_type = ? AND m.model_id = peer.id AND m.collection = ?
+                        WHERE m.model_type = ? AND m.model_id = peer.id AND m.collection = ? AND m.deleted_at IS NULL
                     )', [User::class, 'profiles']);
             })
             ->leftJoin('medias as chat_media', function ($join) {
@@ -81,7 +81,7 @@ class ChatController extends Controller
                     ->where('chat_media.model_type', Chat::class)
                     ->whereRaw('chat_media.id = (
                         SELECT MAX(m.id) FROM medias m
-                        WHERE m.model_type = ? AND m.model_id = chats.id
+                        WHERE m.model_type = ? AND m.model_id = chats.id AND m.deleted_at IS NULL
                     )', [Chat::class]);
             })
             ->leftJoinSub($latestMessageIds, 'latest_msg_ids', function ($join) {
@@ -466,7 +466,7 @@ class ChatController extends Controller
                     ->where('chat_media.model_type', Chat::class)
                     ->whereRaw('chat_media.id = (
                         SELECT MAX(m.id) FROM medias m
-                        WHERE m.model_type = ? AND m.model_id = chats.id
+                        WHERE m.model_type = ? AND m.model_id = chats.id AND m.deleted_at IS NULL
                     )', [Chat::class]);
             })
             ->select([
@@ -943,5 +943,106 @@ class ChatController extends Controller
     protected function verifyChatMembership(int $userId, int $chatId)
     {
         $this->memberOrFail($userId, $chatId);
+    }
+
+
+
+    /**
+     * get chat profiles (gallery)
+     */
+    public function getProfiles(Request $req, string $slug)
+    {
+        $userId = $req->user()->id;
+        $chat = Chat::query()->where('slug', $slug)->first();
+        abort_if(!$chat, 404, 'Chat not found');
+        $this->verifyChatMembership($userId, $chat->id);
+
+        $medias = Media::query()
+            ->where('model_id', $chat->id)
+            ->where('model_type', Chat::class)
+            ->where('collection', 'profiles')
+            ->latest()
+            ->paginate(8);
+
+        return MediaResource::collection($medias);
+    }
+
+    /**
+     * upload a new chat profile photo (Admin / Owner only)
+     */
+    public function uploadProfile(Request $req, string $chatId, \App\Services\MediaService $mediaService)
+    {
+        $userId = $req->user()->id;
+        $chat = $this->findChatOrFail($chatId);
+        abort_if($chat->type === 'direct', 400, 'Direct chats use user profiles instead');
+
+        $member = $this->memberOrFail($userId, $chat->id);
+        abort_if(!$this->isAdminRole($member->role), 403, 'Only admins or the owner can update chat profile photos');
+
+        $validated = $req->validate([
+            'photo' => 'required|file|max:102400|mimes:jpg,jpeg,png',
+        ]);
+
+        try {
+            DB::beginTransaction();
+            $file = $req->file('photo');
+            $mediaService->upload(
+                model: $chat,
+                file: $file,
+                collection: 'profiles',
+                disk: 'private'
+            );
+            DB::commit();
+        } catch (\Throwable $th) {
+            DB::rollBack();
+            abort(500, $th->getMessage());
+        }
+
+        $media = Media::query()
+            ->where('model_id', $chat->id)
+            ->where('model_type', Chat::class)
+            ->where('collection', 'profiles')
+            ->latest()->first();
+        return response()->json([
+            'message' => 'Profile photo uploaded successfully',
+            'profile' => new MediaResource($media),
+        ]);
+    }
+
+    /**
+     * delete a chat profile photo (Admin / Owner only)
+     */
+    public function deleteProfile(Request $req, string $chatId, string $id)
+    {
+        $userId = $req->user()->id;
+        $chat = $this->findChatOrFail($chatId);
+        abort_if($chat->type === 'direct', 400, 'Direct chats use user profiles instead');
+
+        $member = $this->memberOrFail($userId, $chat->id);
+        abort_if(!$this->isAdminRole($member->role), 403, 'Only admins or the owner can delete chat profile photos');
+
+        $media = Media::where('id', $id)
+            ->where('model_id', $chat->id)
+            ->where('model_type', Chat::class)
+            ->where('collection', 'profiles')
+            ->first();
+
+        if (!$media) {
+            return response()->json([
+                'message' => 'Profile photo not found!',
+            ], 404);
+        }
+
+        $media->delete();
+
+        $media = Media::query()
+            ->where('model_id', $chat->id)
+            ->where('model_type', Chat::class)
+            ->where('collection', 'profiles')
+            ->latest()->first();
+        return response()->json([
+            'message' => 'Profile photo deleted successfully',
+            'profile' => new MediaResource($media),
+        ]);
     }
 }

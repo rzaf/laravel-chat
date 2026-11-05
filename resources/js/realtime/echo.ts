@@ -44,7 +44,7 @@ export function getEcho() {
 }
 
 export function disconnectEcho(): void {
-    setSocketId(null);
+    currentSocketId = null;
     echo?.disconnect();
     echo = null;
 }

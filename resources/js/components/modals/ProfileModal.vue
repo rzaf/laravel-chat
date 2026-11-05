@@ -21,6 +21,7 @@ import UserPlusIcon from '@/assets/svgs/UserPlus.svg';
 import UserMinusIcon from '@/assets/svgs/UserMinus.svg';
 import UserIcon from '@/assets/svgs/User.svg';
 import EditIcon from '@/assets/svgs/Edit.svg';
+import CameraIcon from '@/assets/svgs/Camera.svg';
 import Avatar from '../chat/Avatar.vue';
 import PlayIcon from '@/assets/svgs/Play.svg';
 import PauseIcon from '@/assets/svgs/Pause.svg';
@@ -29,7 +30,25 @@ import PhotoIcon from '@/assets/svgs/Photo.svg';
 import FileIcon from '@/assets/svgs/File.svg';
 import { useAudioStore } from '@/stores/audio';
 import type { Attachment, Chat, ChatMember, User } from '@/types';
-import { getChatBySlug, setChatMute, clearChatHistory, deleteChat, getChatMembers, getChatMedia, setChatMemberRole, removeChatMember, regenerateInviteLink, updateChat, joinChat, type ChatMediaType } from '@/api/index.ts';
+import {
+    getChatBySlug,
+    setChatMute,
+    clearChatHistory,
+    deleteChat,
+    getChatMembers,
+    getChatMedia,
+    setChatMemberRole,
+    removeChatMember,
+    regenerateInviteLink,
+    updateChat,
+    joinChat,
+    updateUserInfo,
+    uploadUserProfilePhoto,
+    deleteUserProfilePhoto,
+    uploadChatProfilePhoto,
+    deleteChatProfilePhoto,
+    type ChatMediaType
+} from '@/api/index.ts';
 import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
 import router from '@/router';
 
@@ -51,11 +70,20 @@ const { confirm } = useConfirm();
 const chatSlug = ref<string | null>(null);
 const chat = ref<Chat | null>(null);
 const user = ref<User | null>(null);
-const isLoading = ref<boolean>(true);
 const profileImageGallery = ref<InstanceType<typeof ProfileImageGallery> | null>(null);
 const activeTab = ref<ProfileTab>('info');
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploadingPhoto = ref(false);
 
-/* ------------------------------------------------------- groups & channels */
+/* ------------------------------------------------------- permissions & states */
+
+const isDirectChatSelf = computed(() => {
+    if (!chat.value) return user.value?.username === auth.user?.username;
+    if (chat.value.type === 'direct') {
+        return chatSlug.value === auth.user?.username;
+    }
+    return false;
+});
 
 const isGroupLike = computed(() => chat.value?.type === 'group' || chat.value?.type === 'channel');
 const isChannel = computed(() => chat.value?.type === 'channel');
@@ -64,12 +92,160 @@ const isMember = computed(() => chat.value?.is_member !== false);
 const myRole = computed(() => chat.value?.my_role ?? null);
 const isOwner = computed(() => myRole.value === 'owner');
 const isAdmin = computed(() => myRole.value === 'owner' || myRole.value === 'admin');
+
+// Can manage photos: User's own profile or Chat Admin/Owner
+const canManagePhotos = computed(() => {
+    if (isDirectChatSelf.value) return true;
+    if (isGroupLike.value) return isAdmin.value;
+    return false;
+});
+
 const showHandle = computed(() => !!chat.value?.slug && !chat.value?.is_private);
 const memberNoun = computed(() => (isChannel.value ? 'subscriber' : 'member'));
 const canSeeMembers = computed(() => isGroupLike.value && isMember.value && (!isChannel.value || isAdmin.value));
 const inviteLink = computed(() =>
     chat.value?.is_private && chat.value?.invite_code ? `${window.location.origin}/join/${chat.value.invite_code}` : '',
 );
+
+/* ------------------------------------------------------- edit user profile */
+
+const editingUser = ref(false);
+const editUserName = ref('');
+const editUserUsername = ref('');
+const editUserBio = ref('');
+const savingUser = ref(false);
+const userEditError = ref('');
+
+function startEditUserProfile(): void {
+    editUserName.value = auth.user?.name ?? '';
+    editUserUsername.value = auth.user?.username ?? '';
+    editUserBio.value = user.value?.bio ?? '';
+    userEditError.value = '';
+    editingUser.value = true;
+}
+
+async function saveUserProfile() {
+    if (savingUser.value) return;
+    savingUser.value = true;
+    userEditError.value = '';
+    try {
+        const updated = await updateUserInfo({
+            name: editUserName.value.trim(),
+            username: editUserUsername.value.trim(),
+            bio: editUserBio.value.trim(),
+        });
+        if (auth.user) {
+            auth.user.name = updated.name;
+            auth.user.username = updated.username;
+            auth.user.bio = updated.bio;
+        }
+        if (user.value) {
+            user.value.name = updated.name;
+            user.value.username = updated.username;
+            user.value.bio = updated.bio;
+        }
+        editingUser.value = false;
+    } catch (error) {
+        userEditError.value = 'Could not update profile info.';
+        console.error('Failed to update user profile', error);
+    } finally {
+        savingUser.value = false;
+    }
+}
+
+/* ------------------------------------------------------- photo upload / delete */
+
+function triggerPhotoUpload(): void {
+    if (!canManagePhotos.value) return;
+    fileInput.value?.click();
+}
+
+async function handleFileSelected(event: Event): Promise<void> {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+
+    uploadingPhoto.value = true;
+    try {
+        let lastProfile: Attachment | null = null;
+        if (chat.value?.id && chat.value.type !== 'direct') {
+            lastProfile = await uploadChatProfilePhoto(chat.value.id, file);
+            if (chat.value) {
+                chat.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            const chatListItem = chatStore.chatList?.find((c) => c.id === chat.value?.id);
+            if (chatListItem) {
+                chatListItem.profile_photo = lastProfile.thumbnail_url;
+            }
+        } else if (isDirectChatSelf.value ) {
+            lastProfile = await uploadUserProfilePhoto(file);
+            if (user.value) {
+                user.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            if (chat.value) {
+                chat.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            if (auth.user) {
+                auth.user.profile_photo = lastProfile.thumbnail_url;
+            }
+        }
+        // --- ADD THIS BLOCK TO SYNC THE NEW PHOTO TO THE GALLERY INSTANTLY ---
+        if (lastProfile && profileImageGallery.value) {
+            profileImageGallery.value.addSlide({
+                id: Number(lastProfile.id),
+                url: lastProfile.url,
+                thumbnail_url: lastProfile.thumbnail_url,
+                width: lastProfile.width || 1000,
+                height: lastProfile.height || 1000,
+                type: lastProfile.mime_type || 'image/jpeg',
+            });
+        }
+    } catch (error) {
+        console.error('Failed to upload profile photo', error);
+    } finally {
+        uploadingPhoto.value = false;
+        target.value = '';
+    }
+}
+
+async function handlePhotoDelete(mediaId: number): Promise<void> {
+    const confirmed = await confirm({
+        title: 'Delete profile photo',
+        message: 'Are you sure you want to delete this profile photo?',
+        confirmText: 'Delete',
+        variant: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+        if (chat.value?.id && chat.value.type !== 'direct') {
+            const lastProfile = await deleteChatProfilePhoto(chat.value.id, mediaId);
+            if (chat.value) {
+                chat.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            const chatListItem = chatStore.chatList?.find((c) => c.id === chat.value?.id);
+            if (chatListItem) {
+                chatListItem.profile_photo = lastProfile.thumbnail_url;
+            }
+        } else if (isDirectChatSelf.value) {
+            const lastProfile = await deleteUserProfilePhoto(mediaId);
+            if (user.value) {
+                user.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            if (chat.value) {
+                chat.value.profile_photo = lastProfile.thumbnail_url;
+            }
+            if (auth.user) {
+                auth.user.profile_photo = lastProfile.thumbnail_url;
+            }
+        }
+        profileImageGallery.value?.removeSlide(mediaId);
+    } catch (error) {
+        console.error('Failed to delete profile photo', error);
+    }
+}
+
+/* ------------------------------------------------------- members & media */
 
 const members = ref<ChatMember[]>([]);
 const membersPage = ref(1);
@@ -276,6 +452,7 @@ function openChatMediaGallery(index: number): void {
         attachments,
         Math.max(0, startIndex),
         loadMore,
+        false,
     );
 }
 
@@ -338,7 +515,6 @@ function formatMediaSize(bytes: number): string {
     return `${(bytes / Math.pow(1024, unitIndex)).toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
-// Filter and Sort states for members list
 const memberRoleFilter = ref<'all' | 'admins' | 'normal'>('all');
 const memberSort = ref<'name' | 'joined_at' | 'role'>('role');
 const memberDirection = ref<'asc' | 'desc'>('asc');
@@ -439,7 +615,7 @@ async function handleRegenerateInvite(): Promise<void> {
     }
 }
 
-/* ---- edit info ---- */
+/* ---- edit chat info ---- */
 const editing = ref(false);
 const editName = ref('');
 const editDescription = ref('');
@@ -554,6 +730,7 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     user.value = null;
     chatSlug.value = slug;
     editing.value = false;
+    editingUser.value = false;
     members.value = [];
     chatMediaToken++;
     chatMedia.value = [];
@@ -567,13 +744,17 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     memberSort.value = 'role';
     memberDirection.value = 'asc';
 
-    profileImageGallery.value?.resetPhotos(slug);
+    profileImageGallery.value?.resetPhotos(slug, !!c && c.type !== 'direct');
     if (c == null || !(c.type === 'group' || c.type === 'channel')) {
         const res = await getChatBySlug(slug);
         chat.value = res.chat;
         user.value = res.user;
         if (chat.value == null) {
             chat.value = { slug: user.value?.username ?? slug, type: 'direct' };
+        }
+    } else {
+        if (auth.user && c.type === 'direct' && c.slug === auth.user.username) {
+            user.value = { ...auth.user };
         }
     }
     modalOpen();
@@ -583,9 +764,11 @@ async function open(slug: string, c: Chat | null): Promise<void> {
 }
 
 function handleAvatarClick() {
+    const slug = chat.value?.type === 'direct' || !chat.value ? (user.value?.username || auth.user?.username || chatSlug.value) : (chat.value?.slug || chatSlug.value);
     profileImageGallery.value?.openForProfile(
-        chatSlug.value || chat.value?.slug || '',
-        chat.value?.profile_photo,
+        slug || '',
+        chat.value?.profile_photo || user.value?.profile_photo || auth.user?.profile_photo,
+        !!chat.value && chat.value.type !== 'direct',
     );
 }
 
@@ -680,30 +863,43 @@ defineExpose({
 
 <template>
     <Modal ref="modal" width-class="max-w-[500px] w-[90%]" height-class="h-[80%]">
-        <ProfileImageGallery ref="profileImageGallery" />
-        <div class="relative flex flex-col h-full max-h-[95vh]">
+        <ProfileImageGallery ref="profileImageGallery" :can-delete="canManagePhotos" @delete="handlePhotoDelete" />
+        <div class="relative flex flex-col h-full max-h-[95vh]" id="profile-modal-wrapper">
             <button type="button" @click="close"
                 class="absolute top-2 left-2 z-10 p-3 rounded-full cursor-pointer text-gray-400 hover:text-gray-500 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 aria-label="Close">
                 <CloseIcon class="size-6" />
             </button>
 
+            <!-- Hidden file input for uploading profile photos -->
+            <input ref="fileInput" type="file" accept="image/jpeg,image/png,image/jpg" class="hidden"
+                @change="handleFileSelected" />
+
             <!-- Header -->
             <div
                 class="flex flex-col items-center px-6 pt-8 pb-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
-                <button type="button" @click="handleAvatarClick"
-                    class="block rounded-full overflow-hidden focus:outline-none"
-                    :class="{ 'cursor-pointer': chat?.profile_photo != null }" aria-label="View profile photos">
-                    <Avatar class="w-20 h-20 pointer-events-none"
-                        :src="chat?.profile_photo || '/storage/default-profile.png'" />
-                </button>
+                <div class="relative">
+                    <button type="button" @click="handleAvatarClick"
+                        class="block rounded-full overflow-hidden focus:outline-none cursor-pointer"
+                        aria-label="View profile photos">
+                        <Avatar class="w-20 h-20 pointer-events-none"
+                            :src="chat?.profile_photo || user?.profile_photo || auth.user?.profile_photo || '/storage/default-profile.png'" />
+                    </button>
+
+                    <!-- Separate camera button badge to trigger profile image upload -->
+                    <button v-if="canManagePhotos" type="button" @click="triggerPhotoUpload" :disabled="uploadingPhoto"
+                        class="absolute bottom-0 right-0 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition-colors cursor-pointer"
+                        aria-label="Upload profile photo">
+                        <CameraIcon class="size-4" />
+                    </button>
+                </div>
 
                 <h2 class="mt-3 text-lg font-semibold text-gray-800 dark:text-gray-200">
-                    {{ chat?.name || user?.name || '...' }}
+                    {{ chat?.name || user?.name || auth.user?.name || '...' }}
                 </h2>
 
-                <template v-if="chat?.type === 'direct'">
-                    <p class="mt-1 text-sm text-gray-500">@{{ chatSlug }}</p>
+                <template v-if="chat?.type === 'direct' || (!chat && isDirectChatSelf)">
+                    <p class="mt-1 text-sm text-gray-500">@{{ chatSlug || user?.username || auth.user?.username }}</p>
                 </template>
                 <template v-else-if="isGroupLike">
                     <p class="flex items-center gap-1.5 mt-1 text-sm text-gray-500">
@@ -718,33 +914,77 @@ defineExpose({
                 </template>
 
                 <!-- Navigation Tabs -->
-                <div
+                <div v-if="!isDirectChatSelf"
                     class="flex gap-1 mt-4 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-full overflow-x-auto scrollable text-xs">
                     <button type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'info' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
+                        :class="activeTab === 'info' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 '"
                         @click="selectTab('info')">Info</button>
                     <button v-if="canSeeMembers" type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'members' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
+                        :class="activeTab === 'members' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 '"
                         @click="selectTab('members')">Members</button>
                     <button v-for="tab in MEDIA_TABS" :key="tab" type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === tab ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
+                        :class="activeTab === tab ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 '"
                         @click="selectTab(tab)">{{ mediaTabLabels[tab] }}</button>
                 </div>
             </div>
 
-            <!-- Tab Content (Non-Members scroll naturally, Members uses internal strict layout to fix footer at bottom) -->
+            <!-- Tab Content -->
             <div class="flex-1 overflow-y-auto scrollable px-5 py-4"
                 :class="{ 'flex flex-col min-h-0 overflow-hidden p-0': activeTab === 'members' }">
                 <!-- ================= TAB: INFO ================= -->
                 <template v-if="activeTab === 'info'">
-                    <template v-if="chat?.type === 'direct'">
+                    <template v-if="chat?.type === 'direct' || (!chat && isDirectChatSelf)">
                         <section>
-                            <h3 class="px-1 mb-2 text-xs font-medium uppercase tracking-wider text-gray-500">Information
-                            </h3>
-                            <div
+                            <div class="flex items-center justify-between px-1 mb-2">
+                                <h3 class="text-xs font-medium uppercase tracking-wider text-gray-500">Information</h3>
+                                <button v-if="isDirectChatSelf && !editingUser" type="button"
+                                    @click="startEditUserProfile"
+                                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 rounded-xl hover:bg-blue-100 transition-all cursor-pointer shadow-xs">
+                                    <EditIcon class="size-4" /> Edit Profile
+                                </button>
+                            </div>
+
+                            <!-- Edit User Profile Form -->
+                            <form v-if="editingUser"
+                                class="flex flex-col gap-3.5 p-4 rounded-2xl bg-white dark:bg-gray-800/80 border border-blue-500/20 shadow-md mb-4"
+                                @submit.prevent="saveUserProfile">
+                                <label class="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                                    Name
+                                    <input v-model="editUserName" type="text" maxlength="255" required aria-label="Name"
+                                        class="w-full px-3 py-2 text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl outline-none dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+                                </label>
+
+                                <label class="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                                    Username
+                                    <input v-model="editUserUsername" type="text" maxlength="127" required
+                                        aria-label="Username"
+                                        class="w-full px-3 py-2 text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl outline-none dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+                                </label>
+
+                                <label class="flex flex-col gap-1 text-xs font-medium text-gray-600 dark:text-gray-300">
+                                    Bio
+                                    <textarea v-model="editUserBio" rows="2" maxlength="512" aria-label="Bio"
+                                        placeholder="Bio"
+                                        class="w-full px-3 py-2 text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded-xl outline-none resize-none dark:bg-gray-900 dark:border-gray-700 dark:text-gray-100 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"></textarea>
+                                </label>
+
+                                <p v-if="userEditError" role="alert" class="text-xs text-red-500">{{ userEditError }}
+                                </p>
+                                <div class="flex justify-end gap-2 pt-1">
+                                    <button type="button"
+                                        class="px-4 py-2 text-xs font-medium text-gray-600 rounded-full cursor-pointer dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        @click="editingUser = false">Cancel</button>
+                                    <button type="submit" :disabled="savingUser || !editUserName.trim()"
+                                        class="px-5 py-2 text-xs font-medium text-white bg-blue-600 rounded-full cursor-pointer hover:bg-blue-700 disabled:opacity-50 shadow-sm">
+                                        {{ savingUser ? 'Saving…' : 'Save Changes' }}
+                                    </button>
+                                </div>
+                            </form>
+
+                            <div v-else
                                 class="overflow-hidden rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
                                 <div
                                     class="flex items-center gap-3 px-4 py-3 border-b border-black/5 dark:border-white/5">
@@ -754,6 +994,7 @@ defineExpose({
                                     <div class="min-w-0">
                                         <p class="text-xs text-gray-500 mb-1">Email</p>
                                         <p class="truncate text-sm text-gray-700 dark:text-gray-300">{{ user?.email ??
+                                            auth.user?.email ??
                                             'hidden' }}</p>
                                     </div>
                                 </div>
@@ -765,6 +1006,7 @@ defineExpose({
                                     <div class="min-w-0">
                                         <p class="text-xs text-gray-500 mb-1">Bio</p>
                                         <p class="truncate text-sm text-gray-700 dark:text-gray-300">{{ user?.bio ??
+                                            auth.user?.bio ??
                                             'Not Filled' }}</p>
                                     </div>
                                 </div>
@@ -776,7 +1018,7 @@ defineExpose({
                                     <div class="min-w-0">
                                         <p class="text-xs text-gray-500 mb-1">User Joined</p>
                                         <p class="text-sm text-gray-700 dark:text-gray-300">{{
-                                            formatDate(user?.created_at) }}</p>
+                                            formatDate(user?.created_at ?? auth.user?.created_at) }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -800,7 +1042,7 @@ defineExpose({
                                 </button>
                             </div>
 
-                            <!-- Edit Form -->
+                            <!-- Edit Chat Form -->
                             <form v-if="editing"
                                 class="flex flex-col gap-3.5 p-4 rounded-2xl bg-white dark:bg-gray-800/80 border border-blue-500/20 shadow-md"
                                 @submit.prevent="saveEditInfo">
@@ -944,7 +1186,7 @@ defineExpose({
                                     </button>
                                 </template>
                             </template>
-                            <button v-if="isMember" type="button" @click="handleToggleMute"
+                            <button v-if="isMember || !chat" type="button" @click="handleToggleMute"
                                 class="cursor-pointer flex items-center gap-3 w-full px-4 py-3 border-t border-black/5 dark:border-white/5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-black/5 transition-colors">
                                 <span class="flex items-center justify-center w-9 h-9 rounded-full bg-white/5">
                                     <BellIcon v-if="!chat?.muted" class="stroke-gray-400 size-5" />
@@ -956,7 +1198,7 @@ defineExpose({
                     </section>
 
                     <!-- DANGER ACTIONS -->
-                    <section class="mt-6 pb-2">
+                    <section v-if="chat" class="mt-6 pb-2">
                         <template v-if="chat?.type === 'direct'">
                             <button type="button" @click="handleClearChat"
                                 class="w-full cursor-pointer px-4 py-3 rounded-xl text-sm text-red-400 bg-red-500/5 hover:bg-red-500/10 border border-red-500/10 transition-colors">Clear
@@ -974,10 +1216,9 @@ defineExpose({
                     </section>
                 </template>
 
-                <!-- ================= TAB: MEMBERS (Scrollable List with Fixed Filter/Pagination Footer) ================= -->
+                <!-- ================= TAB: MEMBERS ================= -->
                 <template v-else-if="activeTab === 'members' && canSeeMembers">
                     <div class="flex flex-col h-full min-h-0 px-5 py-4">
-                        <!-- Header & Role Filter / Sorting Toolbar -->
                         <div class="flex flex-col gap-2.5 mb-3 shrink-0">
                             <div class="flex items-center justify-between">
                                 <h3 class="text-xs font-medium uppercase tracking-wider text-gray-500">{{ memberNoun }}s
@@ -989,7 +1230,6 @@ defineExpose({
                                 </button>
                             </div>
 
-                            <!-- Filter & Sort Bar (Admin & Owner Only Role Filter) -->
                             <div class="flex flex-wrap items-center gap-2 text-xs">
                                 <select v-if="isAdmin" v-model="memberRoleFilter"
                                     @change="handleMemberFilterOrSortChange" aria-label="Filter by role"
@@ -1015,7 +1255,6 @@ defineExpose({
                             </div>
                         </div>
 
-                        <!-- Scrollable Members List Container -->
                         <div
                             class="flex-1 min-h-0 overflow-y-auto scrollable rounded-xl bg-black/[0.03] dark:bg-white/[0.03] border border-black/5 dark:border-white/5">
                             <p v-if="membersLoading && !members.length"
@@ -1052,7 +1291,6 @@ defineExpose({
                             </ul>
                         </div>
 
-                        <!-- Numeric Pagination Footer (Always Visible at Bottom) -->
                         <div v-if="membersLastPage > 1"
                             class="flex items-center justify-between mt-3 px-1 text-xs text-gray-500 shrink-0">
                             <span>Page {{ membersPage }} of {{ membersLastPage }}</span>
@@ -1078,7 +1316,6 @@ defineExpose({
                             class="py-8 text-sm text-center text-gray-500">No {{ activeMediaLabel.toLowerCase() }}
                             shared yet.</p>
 
-                        <!-- Photos and videos: compact thumbnails, opened in the shared PhotoSwipe gallery. -->
                         <div v-if="['photos', 'videos', 'video-messages'].includes(activeTab) && chatMedia.length"
                             class="grid grid-cols-3 gap-2 sm:grid-cols-4">
                             <button v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)" type="button"
@@ -1106,7 +1343,6 @@ defineExpose({
                             </button>
                         </div>
 
-                        <!-- Audio files and voice messages use the app-wide audio player. -->
                         <div v-if="['audios', 'audio-messages'].includes(activeTab) && chatMedia.length"
                             class="space-y-2">
                             <article v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
@@ -1139,13 +1375,12 @@ defineExpose({
                                             formatMediaDuration(getMediaDuration(item)) }}</span>
                                         <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item)) }}</span>
                                         <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
-                                        }}</span>
+                                            }}</span>
                                     </div>
                                 </div>
                             </article>
                         </div>
 
-                        <!-- Other files remain compact downloadable rows. -->
                         <div v-if="activeTab === 'files' && chatMedia.length" class="space-y-2">
                             <a v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
                                 :href="getMediaUrl(item) || undefined" target="_blank" rel="noopener noreferrer"

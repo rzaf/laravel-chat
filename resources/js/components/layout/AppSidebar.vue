@@ -96,15 +96,14 @@ onBeforeUnmount(() => {
                 <!-- Profile header -->
                 <button type="button"
                     class="flex items-center gap-3 px-4 pt-6 pb-4 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                    @click="open = false; emit('openProfile')">
-                    <!-- <img src="/storage/default-profile.png" alt=""
-                        class="object-cover rounded-full size-14" /> -->
-                    <Avatar :src="'/storage/default-profile.png'" class="object-cover rounded-full size-14" />
+                    @click="open = false; emit('openProfile', auth.user?.username)">
+                    <Avatar :src="auth.user?.profile_photo || '/storage/default-profile.png'"
+                        class="object-cover rounded-full size-14" />
                     <span class="flex flex-col min-w-0">
                         <span class="text-lg font-medium text-gray-900 truncate dark:text-gray-100">
                             {{ auth.user?.name }}
                         </span>
-                        <span class="text-sm text-gray-500 truncate dark:text-gray-400">@{{ auth.user?.username
+                        <span class="text-sm text-gray-500 truncate dark:text-gray-400">@ {{ auth.user?.username
                         }}</span>
                     </span>
                 </button>

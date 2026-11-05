@@ -90,6 +90,11 @@ Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function (
     Route::patch('/{chatId}/archive', [ChatController::class, 'toggleArchive']);
     Route::put('/{chatId}/draft', [ChatController::class, 'updateDraft']);
     Route::put('/{chatId}/read', [ChatController::class, 'markAsReadChat']);
+
+    // chat profile images
+    Route::post('/{chatId}/profiles/upload', [ChatController::class, 'uploadProfile']);
+    Route::delete('/{chatId}/profiles/{id}', [ChatController::class, 'deleteProfile']);
+    Route::get('/{slug}/profiles', [ChatController::class, 'getProfiles']);
 });
 
 

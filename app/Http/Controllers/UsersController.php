@@ -108,9 +108,16 @@ class UsersController extends Controller
             DB::rollBack();
             abort(500, $th->getMessage());
         }
-        $currentUser->load(['media']);
-
-        return $currentUser;
+        
+        $media = Media::query()
+            ->where('model_id', $currentUser->id)
+            ->where('model_type', User::class)
+            ->where('collection', 'profiles')
+            ->latest()->first();
+        return response()->json([
+            'message' => 'User profile photo uploaded successfully',
+            'profile' => new MediaResource($media),
+        ]);
     }
 
 
@@ -123,7 +130,8 @@ class UsersController extends Controller
     {
         $currentUser = $req->user();
         $mediaId = $req->id;
-        $ok = Media::where('id', $mediaId)->where('model_id', $currentUser->id)->delete();
+        $ok = Media::where('id', $mediaId)->where('model_id', $currentUser->id)->where('model_type', User::class)
+            ->where('collection', 'profiles')->delete();
         if (!$ok) {
             return response()->json([
                 'data' => null,
@@ -131,9 +139,15 @@ class UsersController extends Controller
             ], 400);
         }
 
-        $currentUser->load(['media']);
-
-        return $currentUser;
+        
+        $media = Media::query()
+            ->where('model_id', $currentUser->id)
+            ->where('model_type', User::class)
+            ->where('collection', 'profiles')
+            ->latest()->first();
+        return response()->json([
+            'message' => 'User Profile photo deleted successfully',
+            'profile' => new MediaResource($media),
+        ]);
     }
-    
 }

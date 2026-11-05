@@ -352,6 +352,48 @@ export async function getProfilePhotos(username: string, page: number = 1): Prom
     return data ?? [];
 }
 
+export async function updateUserInfo(payload: { name?: string; username?: string; bio?: string }): Promise<User> {
+    const { data } = await apiClient.put<{ data: User }>('/api/user', payload);
+    return data.data ?? data;
+}
+
+/* -------------------------------------------------------- users and chats profiles photos management */
+
+export async function uploadUserProfilePhoto(file: File): Promise<Attachment> {
+    const form = new FormData();
+    form.append('photo', file);
+    const { data } = await apiClient.post<{ profile: Attachment }>('/api/users/profiles/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.profile;
+}
+
+export async function deleteUserProfilePhoto(mediaId: number): Promise<Attachment> {
+    const { data } = await apiClient.delete<{ profile: Attachment }>(`/api/users/profiles/${mediaId}`);
+    return data.profile;
+}
+
+export async function getChatProfiles(slug: string, page = 1): Promise<ResourceCollectionPaginated<Attachment>> {
+    const { data } = await apiClient.get<ResourceCollectionPaginated<Attachment>>(`/api/chats/${encodeURIComponent(slug)}/profiles`, {
+        params: page > 1 ? { page } : undefined,
+    });
+    return data ?? [];
+}
+
+export async function uploadChatProfilePhoto(chatId: number, file: File): Promise<Attachment> {
+    const form = new FormData();
+    form.append('photo', file);
+    const { data } = await apiClient.post<{ profile: Attachment }>(`/api/chats/${chatId}/profiles/upload`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.profile;
+}
+
+export async function deleteChatProfilePhoto(chatId: number, mediaId: number): Promise<Attachment> {
+    const { data } = await apiClient.delete<{ profile: Attachment }>(`/api/chats/${chatId}/profiles/${mediaId}`);
+    return data.profile;
+}
+
 /* --------------------------------------------------------------- auth */
 
 export async function login(credentials: LoginCredentials): Promise<AuthResponse> {

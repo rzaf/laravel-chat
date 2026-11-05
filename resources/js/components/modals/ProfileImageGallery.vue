@@ -1,13 +1,23 @@
+<!-- src/components/modals/ProfileImageGallery.vue -->
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue';
 import type { Attachment } from '@/types';
-import { getProfilePhotos } from '@/api/index.ts';
+import { getProfilePhotos, getChatProfiles } from '@/api/index.ts';
 
 import PhotoSwipeLightbox from 'photoswipe/lightbox';
 import 'photoswipe/style.css';
 import { createOverlayId, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
 
+const props = defineProps<{
+    canDelete?: boolean;
+}>();
+
+const emit = defineEmits<{
+    (e: 'delete', mediaId: number): void;
+}>();
+
 type Slide = {
+    id?: number;
     src: string;
     msrc: string;
     width: number;
@@ -19,6 +29,7 @@ const isGalleryOpen = ref(false);
 
 let photos: Attachment[] = [];
 let photosSlug: string | null = null;
+let isChatContext = false;
 let photosPage = 0;
 let photosLastPage = 1;
 let isFetchingPage = false;
@@ -33,8 +44,11 @@ let syncThumbs: (() => void) | null = null;
 
 function toSlide(a: Attachment): Slide {
     const isVideo = typeof a.type === 'string' && a.type.startsWith('video/');
+    const rawId = a.id;
+    const id = typeof rawId === 'number' ? rawId : Number(rawId);
 
     return {
+        id: Number.isFinite(id) ? id : undefined,
         src: a.url,
         msrc: isVideo ? (a.thumbnail_url || '') : (a.thumbnail_url || a.url),
         width: a.width || 1000,
@@ -43,10 +57,11 @@ function toSlide(a: Attachment): Slide {
     };
 }
 
-function resetPhotos(slug: string) {
+function resetPhotos(slug: string, isChat = false) {
     generation++;
     photos = [];
     photosSlug = slug;
+    isChatContext = isChat;
     photosPage = 0;
     photosLastPage = 1;
     isFetchingPage = false;
@@ -62,7 +77,9 @@ async function fetchPhotosPage(
     isFetchingPage = true;
 
     try {
-        const res = await getProfilePhotos(slug, page);
+        const res = isChatContext
+            ? await getChatProfiles(slug, page)
+            : await getProfilePhotos(slug, page);
 
         if (gen !== generation) return null;
 
@@ -78,8 +95,7 @@ async function fetchPhotosPage(
     }
 }
 
-/** Starts loading page 1 (once). Safe to call many times. */
-function startFirstPage(slug: string): Promise<void> {
+function startFirstPage(slug: string, isChat = false): Promise<void> {
     if (firstPagePromise) return firstPagePromise;
 
     firstPagePromise = fetchPhotosPage(slug, 1).then(atts => {
@@ -90,7 +106,6 @@ function startFirstPage(slug: string): Promise<void> {
 
         photos = atts;
 
-        // Replace the placeholder avatar if the gallery is already open.
         if (lightbox?.pswp && usingPlaceholder && atts.length > 0) {
             usingPlaceholder = false;
             slides.splice(0, slides.length, ...atts.map(toSlide));
@@ -137,7 +152,6 @@ async function loadNextPage() {
     refreshGallery(false);
 }
 
-/** Tells PhotoSwipe and the thumbnail bar that slides changed. */
 function refreshGallery(includeCurrent: boolean) {
     const pswp: any = lightbox?.pswp;
     if (!pswp) return;
@@ -158,36 +172,60 @@ function refreshGallery(includeCurrent: boolean) {
     pswp.updateSize?.(true);
 }
 
-/**
- * Called by the parent when the profile avatar is clicked.
- * Starts the first-page request without waiting for it.
- */
-function openForProfile(slug: string, avatar: string | null | undefined) {
+function openForProfile(slug: string, avatar: string | null | undefined, isChat = false) {
     if (avatar == null) return;
     if (!slug) return;
 
-    if (photosSlug !== slug || externalLoadMore) resetPhotos(slug);
+    if (photosSlug !== slug || externalLoadMore) resetPhotos(slug, isChat);
 
-    startFirstPage(slug);
+    startFirstPage(slug, isChat);
     openGallery(avatar);
 }
 
-/** Opens the already-loaded media belonging to the selected chat tab. */
 function openForMedia(
     slug: string,
     attachments: Attachment[],
     startIndex = 0,
     loadMore?: () => Promise<Attachment[] | null>,
+    isChat = false,
 ) {
     if (!slug || !attachments.length) return;
 
-    resetPhotos(slug);
+    resetPhotos(slug, isChat);
     photos = attachments.filter(item => item && item.url);
     externalLoadMore = loadMore ?? null;
 
     if (!photos.length) return;
 
     openGallery(photos[0].url, startIndex);
+}
+
+function addSlide(attachment: Attachment) {
+    const newSlide = toSlide(attachment);
+    // Prepend to show the latest uploaded photo first
+    slides.unshift(newSlide);
+    photos.unshift(attachment);
+
+    if (lightbox?.pswp) {
+        refreshGallery(true);
+    }
+}
+
+function removeSlide(mediaId: number) {
+    const index = slides.findIndex(s => s.id === mediaId);
+    if (index === -1) return;
+
+    slides.splice(index, 1);
+    photos = photos.filter((p: any) => p.id !== mediaId);
+
+    if (slides.length === 0) {
+        lightbox?.pswp?.close();
+        destroyPhotoSwipe();
+        return;
+    }
+
+    refreshGallery(true);
+    lightbox?.pswp?.goTo(Math.max(0, index - 1));
 }
 
 function openGallery(avatar: string, startIndex = 0) {
@@ -210,59 +248,41 @@ function openGallery(avatar: string, startIndex = 0) {
     lightbox = new PhotoSwipeLightbox({
         dataSource: slides,
         pswpModule: () => import('photoswipe'),
-
+        appendToEl: document.querySelector('#profile-modal-wrapper') || document.body,
         showHideAnimationType: 'fade',
         showAnimationDuration: 300,
         hideAnimationDuration: 300,
-
         initialZoomLevel: 'fit',
         secondaryZoomLevel: 1.5,
         maxZoomLevel: 4,
-
         imageClickAction: 'zoom-or-close',
         tapAction: 'toggle-controls',
         doubleTapAction: 'zoom',
         wheelToZoom: true,
         pinchToClose: true,
         closeOnVerticalDrag: true,
-
-        padding: {
-            top: 20,
-            bottom: 90,
-            left: 20,
-            right: 20,
-        },
+        padding: { top: 20, bottom: 90, left: 20, right: 20 },
         bgOpacity: 0.9,
     });
 
-    lightbox.on('loadError', ({ content }: any) => {
-        console.error(
-            '[PhotoSwipe] failed to load:',
-            content?.data?.src,
-        );
-    });
-
-    lightbox.on('contentLoad', (event: any) => {
-        const { content } = event;
-        if (content?.data?.type !== 'video') return;
-
-        event.preventDefault();
-
-        const container = document.createElement('div');
-        container.className = 'pswp__video-container';
-        container.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#000;';
-
-        const video = document.createElement('video');
-        video.controls = true;
-        video.playsInline = true;
-        video.preload = 'metadata';
-        video.poster = content.data.msrc || '';
-        video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
-        video.src = content.data.src;
-
-        container.appendChild(video);
-        content.element = container;
-    });
+    if (props.canDelete) {
+        lightbox.on('uiRegister', () => {
+            lightbox?.pswp?.ui?.registerElement({
+                name: 'delete-button',
+                order: 7,
+                isButton: true,
+                tagName: 'button',
+                html: '<svg aria-hidden="true" class="pswp__icn" viewBox="0 0 24 24" width="24" height="24"><path fill="#f2f2f2" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>', title: 'Delete photo',
+                onClick: (e, el, pswp) => {
+                    const currentIndex = pswp.currIndex;
+                    const currentSlide = slides[currentIndex];
+                    if (currentSlide?.id) {
+                        emit('delete', currentSlide.id);
+                    }
+                },
+            });
+        });
+    }
 
     lightbox.on('change', () => {
         document.querySelectorAll<HTMLVideoElement>('.pswp__video-container video')
@@ -287,38 +307,28 @@ function openGallery(avatar: string, startIndex = 0) {
             order: 9,
             isButton: false,
             appendTo: 'wrapper',
-
             onInit: (el, pswp) => {
                 el.className = 'pswp__custom-thumbnails-bar';
-
                 const container = document.createElement('div');
-                container.className =
-                    'dark pswp__thumb-container scrollable-x';
-
+                container.className = 'dark pswp__thumb-container scrollable-x';
                 el.appendChild(container);
 
                 let lastActiveIndex = pswp.currIndex;
 
                 const updateActive = (scrollToActive = true) => {
-                    container
-                        .querySelectorAll<HTMLElement>('.pswp__thumb-item')
-                        .forEach((btn, i) => {
-                            const active = i === pswp.currIndex;
-                            btn.classList.toggle('active', active);
+                    container.querySelectorAll<HTMLElement>('.pswp__thumb-item').forEach((btn, i) => {
+                        const active = i === pswp.currIndex;
+                        btn.classList.toggle('active', active);
 
-                            if (active && scrollToActive) {
-                                container.scrollTo({
-                                    left:
-                                        btn.offsetLeft -
-                                        container.clientWidth / 2 +
-                                        btn.offsetWidth / 2,
-                                    behavior: 'smooth',
-                                });
-                            }
-                        });
+                        if (active && scrollToActive) {
+                            container.scrollTo({
+                                left: btn.offsetLeft - container.clientWidth / 2 + btn.offsetWidth / 2,
+                                behavior: 'smooth',
+                            });
+                        }
+                    });
                 };
 
-                // Rebuild the strip from the current slides.
                 syncThumbs = () => {
                     const previousScrollLeft = container.scrollLeft;
                     container.innerHTML = '';
@@ -352,26 +362,15 @@ function openGallery(avatar: string, startIndex = 0) {
                     updateActive(false);
                 };
 
-                // Load the next page near the end of the thumbnail strip.
-                container.addEventListener(
-                    'scroll',
-                    () => {
-                        const nearEnd =
-                            container.scrollLeft + container.clientWidth >=
-                            container.scrollWidth - 120;
-
-                        if (nearEnd) loadNextPage();
-                    },
-                    { passive: true },
-                );
+                container.addEventListener('scroll', () => {
+                    const nearEnd = container.scrollLeft + container.clientWidth >= container.scrollWidth - 120;
+                    if (nearEnd) loadNextPage();
+                }, { passive: true });
 
                 pswp.on('change', () => {
-                    const indexChanged =
-                        pswp.currIndex !== lastActiveIndex;
-
+                    const indexChanged = pswp.currIndex !== lastActiveIndex;
                     lastActiveIndex = pswp.currIndex;
                     updateActive(indexChanged);
-
                 });
 
                 syncThumbs();
@@ -425,14 +424,15 @@ defineExpose({
     startFirstPage,
     openForProfile,
     openForMedia,
+    addSlide,
+    removeSlide,
     destroyPhotoSwipe,
     isGalleryOpen,
 });
 </script>
 
 <template>
-    <!-- PhotoSwipe renders its gallery outside this component's DOM. -->
-    <div id="asdfasdfsdf" class="hidden" aria-hidden="true"></div>
+    <div class="hidden" aria-hidden="true"></div>
 </template>
 
 <style>
@@ -449,7 +449,6 @@ defineExpose({
 
 .pswp__thumb-container {
     position: relative;
-    /* needed so offsetLeft is relative to the strip */
     display: flex;
     gap: 8px;
     padding: 8px 12px;

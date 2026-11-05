@@ -70,11 +70,14 @@ router.onError((e) => console.error('router error', e));
         <!-- Sidebar is positioned outside the workspace column -->
         <AppSidebar v-model:open="showSidebar" @open-contacts="" @open-add-contact="addContactModalRef?.open()"
             @open-setting="settingModalRef?.open()" @open-create-chat="(type) => createChatModalRef?.open(type)"
-            @logout="handleLogout" />
+            @logout="handleLogout" @open-profile="(slug) => {
+                console.log(`openning chat CURRENT USER : ${slug}`);
+                profileModalRef?.open(slug, null);
+            }" />
 
         <!-- Main Workspace Column (Chat List, Chat Window, and Global Audio Player stacked vertically) -->
         <div class="flex flex-col flex-1 h-full min-w-0 relative bg-gray-100 dark:bg-gray-900">
-            
+
             <!-- Upper workspace area (ChatList and Empty/ChatWindow) -->
             <div class="relative flex flex-1 min-h-0 w-full">
                 <!-- Chat List remains visible on mobile; on mobile when a chat is selected, we slide the chat window over/across -->
@@ -103,13 +106,14 @@ router.onError((e) => console.error('router error', e));
     </div>
 
     <EditContactModal ref="editContactModalRef" />
-    
+
     <AddContactModal ref="addContactModalRef" @open-direct-chat="(username) => {
         addContactModalRef?.close();
         router.push(`/chats/${username}`)
     }" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)" />
 
-    <ProfileModal ref="profileModalRef" @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)"
+    <ProfileModal ref="profileModalRef"
+        @open-edit-contact-modal="(username, name) => editContactModalRef?.open(username, name)"
         @open-add-members="(chatItem) => addMembersModalRef?.open(chatItem)" />
 
     <CreateChatModal ref="createChatModalRef" />
