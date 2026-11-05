@@ -22,12 +22,18 @@ import UserMinusIcon from '@/assets/svgs/UserMinus.svg';
 import UserIcon from '@/assets/svgs/User.svg';
 import EditIcon from '@/assets/svgs/Edit.svg';
 import Avatar from '../chat/Avatar.vue';
-import type { Chat, ChatMember, User } from '@/types';
-import { getChatBySlug, setChatMute, clearChatHistory, deleteChat, getChatMembers, setChatMemberRole, removeChatMember, regenerateInviteLink, updateChat, joinChat, } from '@/api/index.ts';
+import PlayIcon from '@/assets/svgs/Play.svg';
+import PauseIcon from '@/assets/svgs/Pause.svg';
+import VideoIcon from '@/assets/svgs/Video.svg';
+import PhotoIcon from '@/assets/svgs/Photo.svg';
+import FileIcon from '@/assets/svgs/File.svg';
+import { useAudioStore } from '@/stores/audio';
+import type { Attachment, Chat, ChatMember, User } from '@/types';
+import { getChatBySlug, setChatMute, clearChatHistory, deleteChat, getChatMembers, getChatMedia, setChatMemberRole, removeChatMember, regenerateInviteLink, updateChat, joinChat, type ChatMediaType } from '@/api/index.ts';
 import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
 import router from '@/router';
 
-type ProfileTab = 'info' | 'members' | 'files' | 'media' | 'links' | 'music';
+type ProfileTab = 'info' | 'members' | ChatMediaType;
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{3,127}$/;
 
 const emit = defineEmits<{
@@ -39,6 +45,7 @@ const { modal, open: modalOpen, close, toggle, isOpen } = useModalControl();
 const chatStore = useChatStore();
 const auth = useAuthStore();
 const contactStore = useContactStore();
+const audioStore = useAudioStore();
 const { confirm } = useConfirm();
 
 const chatSlug = ref<string | null>(null);
@@ -68,6 +75,268 @@ const members = ref<ChatMember[]>([]);
 const membersPage = ref(1);
 const membersLastPage = ref(1);
 const membersLoading = ref(false);
+
+const chatMedia = ref<Attachment[]>([]);
+const chatMediaLoading = ref(false);
+const chatMediaError = ref('');
+const chatMediaPage = ref(1);
+const chatMediaLastPage = ref(1);
+const chatMediaHasMore = ref(false);
+let chatMediaToken = 0;
+
+const MEDIA_TABS: ChatMediaType[] = ['photos', 'videos', 'audios', 'files', 'audio-messages', 'video-messages'];
+const mediaTabLabels: Record<ChatMediaType, string> = {
+    photos: 'Photos',
+    videos: 'Videos',
+    audios: 'Music',
+    files: 'Files',
+    'audio-messages': 'Voice Messages',
+    'video-messages': 'Video Messages',
+};
+
+function isMediaTab(tab: ProfileTab): tab is ChatMediaType {
+    return MEDIA_TABS.includes(tab as ChatMediaType);
+}
+
+const activeMediaLabel = computed(() =>
+    isMediaTab(activeTab.value) ? mediaTabLabels[activeTab.value] : '',
+);
+
+async function loadChatMedia(page = 1): Promise<Attachment[] | null> {
+    const slug = chatSlug.value;
+    const type = activeTab.value;
+    if (!slug || !isMediaTab(type) || chatMediaLoading.value) return null;
+
+    const token = ++chatMediaToken;
+    chatMediaLoading.value = true;
+    chatMediaError.value = '';
+
+    try {
+        const response = await getChatMedia(slug, type, page);
+        if (token !== chatMediaToken || slug !== chatSlug.value || type !== activeTab.value) return null;
+
+        const items = response.data ?? [];
+        chatMedia.value = page === 1 ? items : [...chatMedia.value, ...items];
+        chatMediaPage.value = response.meta?.current_page ?? page;
+        chatMediaLastPage.value = response.meta?.last_page ?? page;
+        const nextPageUrl = (response as unknown as { links?: { next?: string | null } }).links?.next;
+        chatMediaHasMore.value = Boolean(nextPageUrl) || chatMediaLastPage.value > page;
+
+        return items;
+    } catch (error) {
+        if (token === chatMediaToken) {
+            chatMediaError.value = 'Could not load shared items.';
+            console.error('Failed to load chat media', error);
+        }
+        return null;
+    } finally {
+        if (token === chatMediaToken) chatMediaLoading.value = false;
+    }
+}
+
+function selectTab(tab: ProfileTab): void {
+    profileImageGallery.value?.destroyPhotoSwipe();
+    activeTab.value = tab;
+    chatMediaToken++;
+    chatMediaLoading.value = false;
+
+    if (isMediaTab(tab)) {
+        chatMedia.value = [];
+        chatMediaPage.value = 1;
+        chatMediaLastPage.value = 1;
+        chatMediaHasMore.value = false;
+        void loadChatMedia(1);
+    }
+}
+
+function loadMoreChatMedia(): void {
+    if (!chatMediaLoading.value && chatMediaHasMore.value) {
+        void loadChatMedia(chatMediaPage.value + 1);
+    }
+}
+
+type MediaRecord = Record<string, unknown>;
+
+function mediaRecord(value: unknown): MediaRecord {
+    return value !== null && typeof value === 'object' ? value as MediaRecord : {};
+}
+
+function getMediaFile(item: Attachment): MediaRecord {
+    const record = mediaRecord(item);
+    const nested = record.media ?? record.attachments ?? record.attachment;
+    if (Array.isArray(nested)) return mediaRecord(nested[0]);
+    if (nested && typeof nested === 'object') {
+        const nestedRecord = mediaRecord(nested);
+        if (Array.isArray(nestedRecord.data)) return mediaRecord(nestedRecord.data[0]);
+        return nestedRecord;
+    }
+    return record;
+}
+
+function mediaString(record: MediaRecord, ...keys: string[]): string | null {
+    for (const key of keys) {
+        const value = record[key];
+        if (typeof value === 'string' && value.length) return value;
+    }
+    return null;
+}
+
+function getMediaUrl(item: Attachment): string | null {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    return mediaString(file, 'url', 'temporary_url', 'download_url', 'original_url', 'full_url', 'media_url', 'preview_url')
+        ?? mediaString(record, 'url', 'temporary_url', 'download_url', 'original_url', 'full_url', 'media_url');
+}
+
+function getMediaName(item: Attachment): string {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    return mediaString(file, 'file_name', 'original_name', 'filename', 'name', 'title')
+        ?? mediaString(record, 'file_name', 'original_name', 'filename', 'name', 'title', 'content')
+        ?? 'Shared item';
+}
+
+function getMediaMime(item: Attachment): string {
+    return mediaString(getMediaFile(item), 'mime_type', 'mime', 'type')
+        ?? mediaString(mediaRecord(item), 'mime_type', 'mime', 'type')
+        ?? '';
+}
+
+function getMediaDate(item: Attachment): string | null {
+    return mediaString(getMediaFile(item), 'created_at') ?? mediaString(mediaRecord(item), 'created_at');
+}
+
+function getMediaKey(item: Attachment, index: number): string | number {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const id = file.id ?? record.id;
+    return typeof id === 'string' || typeof id === 'number' ? id : `${getMediaDate(item) ?? 'item'}-${index}`;
+}
+
+function getMediaThumbnailUrl(item: Attachment, allowOriginal = false): string | null {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const thumbnail = mediaString(file, 'thumbnail_url', 'thumb_url', 'poster_url', 'preview_url')
+        ?? mediaString(record, 'thumbnail_url', 'thumb_url', 'poster_url', 'preview_url');
+
+    if (thumbnail) return thumbnail;
+    return allowOriginal ? getMediaUrl(item) : null;
+}
+
+function toGalleryAttachment(item: Attachment): Attachment | null {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const url = getMediaUrl(item);
+    if (!url) return null;
+
+    const mime = getMediaMime(item) || (activeTab.value === 'photos' ? 'image/jpeg' : 'video/mp4');
+    const rawId = file.id ?? record.id;
+    const id = typeof rawId === 'number' ? rawId : Number(rawId);
+    const thumbnail = getMediaThumbnailUrl(item, mime.startsWith('image/')) ?? '';
+
+    return {
+        ...file,
+        id,
+        name: getMediaName(item),
+        url,
+        thumbnail_url: thumbnail,
+        type: mime,
+        width: Number(file.width ?? record.width ?? 1000),
+        height: Number(file.height ?? record.height ?? 1000),
+    } as unknown as Attachment;
+}
+
+function openChatMediaGallery(index: number): void {
+    if (!['photos', 'videos', 'video-messages'].includes(activeTab.value)) return;
+
+    const attachments = chatMedia.value
+        .map(item => toGalleryAttachment(item))
+        .filter((item): item is Attachment => item !== null);
+
+    if (!attachments.length) return;
+
+    const selected = toGalleryAttachment(chatMedia.value[index]);
+    const startIndex = selected
+        ? attachments.findIndex(item => item.id === selected.id)
+        : 0;
+
+    const loadMore = async (): Promise<Attachment[] | null> => {
+        if (!chatMediaHasMore.value) return null;
+
+        const nextItems = await loadChatMedia(chatMediaPage.value + 1);
+        if (!nextItems?.length) return null;
+
+        return nextItems
+            .map(item => toGalleryAttachment(item))
+            .filter((item): item is Attachment => item !== null);
+    };
+
+    profileImageGallery.value?.openForMedia(
+        chatSlug.value || chat.value?.slug || '',
+        attachments,
+        Math.max(0, startIndex),
+        loadMore,
+    );
+}
+
+function mediaId(item: Attachment): number | null {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const id = file.id ?? record.id;
+    const numericId = typeof id === 'number' ? id : Number(id);
+    return Number.isFinite(numericId) ? numericId : null;
+}
+
+function isCurrentAudio(item: Attachment): boolean {
+    const id = mediaId(item);
+    return id !== null && Number(audioStore.currentAudio?.id) === id;
+}
+
+function playSharedAudio(item: Attachment): void {
+    const url = getMediaUrl(item);
+    const id = mediaId(item);
+    if (!url || id === null) return;
+
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const audio = {
+        ...file,
+        id,
+        name: getMediaName(item),
+        url,
+        type: getMediaMime(item) || 'audio/mpeg',
+        duration: Number(file.duration ?? record.duration ?? 0),
+        size: Number(file.size ?? record.size ?? 0),
+    } as unknown as Attachment;
+
+    audioStore.playAudio(audio, chatSlug.value ?? undefined);
+}
+
+function getMediaDuration(item: Attachment): number {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const duration = Number(file.duration ?? record.duration ?? 0);
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function formatMediaDuration(value: number): string {
+    const seconds = Math.max(0, Math.floor(value));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function getMediaSize(item: Attachment): number {
+    const file = getMediaFile(item);
+    const record = mediaRecord(item);
+    const size = Number(file.size ?? record.size ?? 0);
+    return Number.isFinite(size) && size > 0 ? size : 0;
+}
+
+function formatMediaSize(bytes: number): string {
+    if (!bytes) return '';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return `${(bytes / Math.pow(1024, unitIndex)).toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
 
 // Filter and Sort states for members list
 const memberRoleFilter = ref<'all' | 'admins' | 'normal'>('all');
@@ -286,6 +555,13 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     chatSlug.value = slug;
     editing.value = false;
     members.value = [];
+    chatMediaToken++;
+    chatMedia.value = [];
+    chatMediaLoading.value = false;
+    chatMediaError.value = '';
+    chatMediaPage.value = 1;
+    chatMediaLastPage.value = 1;
+    chatMediaHasMore.value = false;
     activeTab.value = 'info';
     memberRoleFilter.value = 'all';
     memberSort.value = 'role';
@@ -447,27 +723,15 @@ defineExpose({
                     <button type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
                         :class="activeTab === 'info' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'info'">Info</button>
+                        @click="selectTab('info')">Info</button>
                     <button v-if="canSeeMembers" type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
                         :class="activeTab === 'members' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'members'">Members</button>
-                    <button type="button"
+                        @click="selectTab('members')">Members</button>
+                    <button v-for="tab in MEDIA_TABS" :key="tab" type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'files' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'files'">Files</button>
-                    <button type="button"
-                        class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'media' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'media'">Media</button>
-                    <button type="button"
-                        class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'links' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'links'">Links</button>
-                    <button type="button"
-                        class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
-                        :class="activeTab === 'music' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
-                        @click="activeTab = 'music'">Music</button>
+                        :class="activeTab === tab ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
+                        @click="selectTab(tab)">{{ mediaTabLabels[tab] }}</button>
                 </div>
             </div>
 
@@ -804,11 +1068,106 @@ defineExpose({
                     </div>
                 </template>
 
-                <!-- ================= FUTURE TABS (EMPTY) ================= -->
-                <template v-else-if="['files', 'media', 'links', 'music'].includes(activeTab)">
-                    <div class="flex flex-col items-center justify-center py-16 text-center text-gray-400">
-                        <p class="text-sm font-medium capitalize">No {{ activeTab }} shared yet</p>
-                        <p class="text-xs mt-1">Items shared in this chat will appear here.</p>
+                <!-- ================= TAB: SHARED MEDIA ================= -->
+                <template v-else-if="isMediaTab(activeTab)">
+                    <div class="space-y-3">
+                        <p v-if="chatMediaError" class="py-2 text-sm text-center text-red-400">{{ chatMediaError }}</p>
+                        <p v-if="chatMediaLoading && !chatMedia.length" class="py-8 text-sm text-center text-gray-500">
+                            Loading…</p>
+                        <p v-else-if="!chatMedia.length && !chatMediaLoading && !chatMediaError"
+                            class="py-8 text-sm text-center text-gray-500">No {{ activeMediaLabel.toLowerCase() }}
+                            shared yet.</p>
+
+                        <!-- Photos and videos: compact thumbnails, opened in the shared PhotoSwipe gallery. -->
+                        <div v-if="['photos', 'videos', 'video-messages'].includes(activeTab) && chatMedia.length"
+                            class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                            <button v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)" type="button"
+                                class="group relative aspect-square min-w-0 overflow-hidden rounded-lg bg-gray-100 text-left dark:bg-gray-800"
+                                :aria-label="`Open ${getMediaName(item)}`" :disabled="!getMediaUrl(item)"
+                                @click="openChatMediaGallery(index)">
+                                <img v-if="getMediaThumbnailUrl(item)" :src="getMediaThumbnailUrl(item)!"
+                                    :alt="getMediaName(item)" loading="lazy" decoding="async"
+                                    class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                                <div v-else class="flex h-full w-full items-center justify-center text-gray-400">
+                                    <PhotoIcon v-if="activeTab === 'photos'" class="size-8" />
+                                    <VideoIcon v-else class="size-8" />
+                                </div>
+                                <span v-if="activeTab !== 'photos'"
+                                    class="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+                                    <span
+                                        class="grid size-9 place-items-center rounded-full bg-black/55 backdrop-blur-sm">
+                                        <PlayIcon class="ml-0.5 size-4 fill-white" />
+                                    </span>
+                                </span>
+                                <span
+                                    class="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-2 pb-1 pt-4 text-left text-[10px] text-white">
+                                    {{ getMediaName(item) }}
+                                </span>
+                            </button>
+                        </div>
+
+                        <!-- Audio files and voice messages use the app-wide audio player. -->
+                        <div v-if="['audios', 'audio-messages'].includes(activeTab) && chatMedia.length"
+                            class="space-y-2">
+                            <article v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
+                                class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800/70">
+                                <button type="button"
+                                    class="relative grid size-11 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                                    :aria-label="isCurrentAudio(item) && audioStore.isPlaying ? 'Pause audio' : 'Play audio'"
+                                    :disabled="!getMediaUrl(item)" @click="playSharedAudio(item)">
+                                    <span v-if="isCurrentAudio(item) && audioStore.isLoading"
+                                        class="absolute inset-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                    <PauseIcon v-if="isCurrentAudio(item) && audioStore.isPlaying"
+                                        class="size-4 fill-white" />
+                                    <PlayIcon v-else class="ml-0.5 size-4 fill-white" />
+                                </button>
+
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        <p class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                            {{ getMediaName(item) === 'Shared item' && activeTab === 'audio-messages' ?
+                                                'Voice message' : getMediaName(item) }}
+                                        </p>
+                                        <span v-if="isCurrentAudio(item)"
+                                            class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                            {{ audioStore.isPlaying ? 'Playing' : 'Selected' }}
+                                        </span>
+                                    </div>
+                                    <div
+                                        class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
+                                        <span v-if="getMediaDuration(item)">{{
+                                            formatMediaDuration(getMediaDuration(item)) }}</span>
+                                        <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item)) }}</span>
+                                        <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
+                                        }}</span>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
+
+                        <!-- Other files remain compact downloadable rows. -->
+                        <div v-if="activeTab === 'files' && chatMedia.length" class="space-y-2">
+                            <a v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
+                                :href="getMediaUrl(item) || undefined" target="_blank" rel="noopener noreferrer"
+                                class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/70 dark:hover:bg-gray-800">
+                                <span
+                                    class="grid size-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                                    <FileIcon class="size-5" />
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block truncate text-sm font-medium text-gray-800 dark:text-gray-100">{{
+                                        getMediaName(item) }}</span>
+                                    <span class="mt-0.5 block text-[11px] text-gray-500">{{ getMediaSize(item) ?
+                                        formatMediaSize(getMediaSize(item)) : getMediaMime(item) }}</span>
+                                </span>
+                            </a>
+                        </div>
+
+                        <p v-if="chatMediaLoading && chatMedia.length" class="py-2 text-xs text-center text-gray-500">
+                            Loading more…</p>
+                        <button v-if="chatMediaHasMore && !chatMediaLoading" type="button"
+                            class="w-full rounded-lg py-2 text-sm font-medium text-blue-600 hover:bg-black/5 dark:text-blue-400 dark:hover:bg-white/5"
+                            @click="loadMoreChatMedia">Load more</button>
                     </div>
                 </template>
             </div>

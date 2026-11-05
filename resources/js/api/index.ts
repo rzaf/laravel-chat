@@ -151,6 +151,20 @@ export async function getChatMembers(chatId: number, page = 1, params?: { role?:
     return data;
 }
 
+export type ChatMediaType = 'photos' | 'videos' | 'audios' | 'files' | 'audio-messages' | 'video-messages';
+
+export async function getChatMedia(
+    slug: string,
+    type: ChatMediaType,
+    page = 1,
+): Promise<ResourceCollectionPaginated<Attachment>> {
+    const { data } = await apiClient.get<ResourceCollectionPaginated<Attachment>>(
+        `/api/chats/${encodeURIComponent(slug)}/media`,
+        { params: { type, page: page > 1 ? page : undefined } },
+    );
+    return data;
+}
+
 export async function addChatMembers(
     chatId: number,
     usernames: string[],

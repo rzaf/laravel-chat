@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue';
 import type { Attachment } from '@/types';
@@ -13,6 +12,7 @@ type Slide = {
     msrc: string;
     width: number;
     height: number;
+    type: 'image' | 'video';
 };
 
 const isGalleryOpen = ref(false);
@@ -23,6 +23,7 @@ let photosPage = 0;
 let photosLastPage = 1;
 let isFetchingPage = false;
 let firstPagePromise: Promise<void> | null = null;
+let externalLoadMore: (() => Promise<Attachment[] | null>) | null = null;
 let generation = 0;
 
 let lightbox: PhotoSwipeLightbox | null = null;
@@ -31,11 +32,14 @@ let usingPlaceholder = false;
 let syncThumbs: (() => void) | null = null;
 
 function toSlide(a: Attachment): Slide {
+    const isVideo = typeof a.type === 'string' && a.type.startsWith('video/');
+
     return {
         src: a.url,
-        msrc: a.thumbnail_url || a.url,
+        msrc: isVideo ? (a.thumbnail_url || '') : (a.thumbnail_url || a.url),
         width: a.width || 1000,
         height: a.height || 1000,
+        type: isVideo ? 'video' : 'image',
     };
 }
 
@@ -47,6 +51,7 @@ function resetPhotos(slug: string) {
     photosLastPage = 1;
     isFetchingPage = false;
     firstPagePromise = null;
+    externalLoadMore = null;
 }
 
 async function fetchPhotosPage(
@@ -98,6 +103,30 @@ function startFirstPage(slug: string): Promise<void> {
 
 async function loadNextPage() {
     if (isFetchingPage || usingPlaceholder || !photosSlug) return;
+
+    if (externalLoadMore) {
+        const currentGeneration = generation;
+        isFetchingPage = true;
+
+        try {
+            const nextItems = await externalLoadMore();
+            if (currentGeneration !== generation || !nextItems?.length) return;
+
+            const validItems = nextItems.filter(item => item && item.url);
+            if (!validItems.length) return;
+
+            photos = [...photos, ...validItems];
+            slides.push(...validItems.map(toSlide));
+            refreshGallery(false);
+        } catch (error) {
+            console.error('Failed to load more gallery media:', error);
+        } finally {
+            if (currentGeneration === generation) isFetchingPage = false;
+        }
+
+        return;
+    }
+
     if (photosPage >= photosLastPage) return;
 
     const atts = await fetchPhotosPage(photosSlug, photosPage + 1);
@@ -137,13 +166,31 @@ function openForProfile(slug: string, avatar: string | null | undefined) {
     if (avatar == null) return;
     if (!slug) return;
 
-    if (photosSlug !== slug) resetPhotos(slug);
+    if (photosSlug !== slug || externalLoadMore) resetPhotos(slug);
 
     startFirstPage(slug);
     openGallery(avatar);
 }
 
-function openGallery(avatar: string) {
+/** Opens the already-loaded media belonging to the selected chat tab. */
+function openForMedia(
+    slug: string,
+    attachments: Attachment[],
+    startIndex = 0,
+    loadMore?: () => Promise<Attachment[] | null>,
+) {
+    if (!slug || !attachments.length) return;
+
+    resetPhotos(slug);
+    photos = attachments.filter(item => item && item.url);
+    externalLoadMore = loadMore ?? null;
+
+    if (!photos.length) return;
+
+    openGallery(photos[0].url, startIndex);
+}
+
+function openGallery(avatar: string, startIndex = 0) {
     destroyPhotoSwipe();
 
     if (photos.length > 0) {
@@ -156,6 +203,7 @@ function openGallery(avatar: string) {
             msrc: avatar || '/storage/default-profile.png',
             width: 800,
             height: 800,
+            type: 'image',
         }];
     }
 
@@ -192,6 +240,45 @@ function openGallery(avatar: string) {
             '[PhotoSwipe] failed to load:',
             content?.data?.src,
         );
+    });
+
+    lightbox.on('contentLoad', (event: any) => {
+        const { content } = event;
+        if (content?.data?.type !== 'video') return;
+
+        event.preventDefault();
+
+        const container = document.createElement('div');
+        container.className = 'pswp__video-container';
+        container.style.cssText = 'display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:#000;';
+
+        const video = document.createElement('video');
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.poster = content.data.msrc || '';
+        video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
+        video.src = content.data.src;
+
+        container.appendChild(video);
+        content.element = container;
+    });
+
+    lightbox.on('change', () => {
+        document.querySelectorAll<HTMLVideoElement>('.pswp__video-container video')
+            .forEach(video => video.pause());
+
+        const index = lightbox?.pswp?.currIndex ?? 0;
+        if (index >= slides.length - 3) void loadNextPage();
+    });
+
+    lightbox.on('close', () => {
+        document.querySelectorAll<HTMLVideoElement>('.pswp__video-container video')
+            .forEach(video => {
+                video.pause();
+                video.removeAttribute('src');
+                video.load();
+            });
     });
 
     lightbox.on('uiRegister', () => {
@@ -241,11 +328,16 @@ function openGallery(avatar: string) {
                         btn.type = 'button';
                         btn.className = 'pswp__thumb-item';
 
-                        const img = document.createElement('img');
-                        img.src = s.msrc;
-                        img.alt = `Thumbnail ${index + 1}`;
-
-                        btn.appendChild(img);
+                        if (s.msrc) {
+                            const img = document.createElement('img');
+                            img.src = s.msrc;
+                            img.alt = `Thumbnail ${index + 1}`;
+                            btn.appendChild(img);
+                        } else {
+                            btn.classList.add('pswp__thumb-item--video-placeholder');
+                            btn.setAttribute('aria-label', `Video ${index + 1}`);
+                            btn.textContent = '▶';
+                        }
 
                         btn.addEventListener('click', (e) => {
                             e.stopPropagation();
@@ -280,9 +372,6 @@ function openGallery(avatar: string) {
                     lastActiveIndex = pswp.currIndex;
                     updateActive(indexChanged);
 
-                    if (pswp.currIndex >= slides.length - 3) {
-                        loadNextPage();
-                    }
                 });
 
                 syncThumbs();
@@ -302,7 +391,7 @@ function openGallery(avatar: string) {
     });
 
     lightbox.init();
-    lightbox.loadAndOpen(0);
+    lightbox.loadAndOpen(Math.max(0, Math.min(startIndex, slides.length - 1)));
 }
 
 function destroyPhotoSwipe() {
@@ -335,6 +424,7 @@ defineExpose({
     resetPhotos,
     startFirstPage,
     openForProfile,
+    openForMedia,
     destroyPhotoSwipe,
     isGalleryOpen,
 });
@@ -392,6 +482,14 @@ defineExpose({
 .pswp__thumb-item.active {
     opacity: 1;
     border-color: #3b82f6;
+}
+
+.pswp__thumb-item--video-placeholder {
+    display: grid;
+    place-items: center;
+    color: white;
+    background: #1f2937;
+    font-size: 15px;
 }
 
 .pswp__thumb-item img {
