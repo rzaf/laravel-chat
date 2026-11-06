@@ -50,6 +50,8 @@ import {
     type ChatMediaType
 } from '@/api/index.ts';
 import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
+import ImageCropModal, { isAnimatedImage } from '@/components/modals/ImageCropModal.vue';
+import { UPLOAD_LIMITS, checkFileSize } from '@/config/uploadLimits';
 import router from '@/router';
 
 type ProfileTab = 'info' | 'members' | ChatMediaType;
@@ -160,11 +162,106 @@ function triggerPhotoUpload(): void {
     fileInput.value?.click();
 }
 
-async function handleFileSelected(event: Event): Promise<void> {
-    const target = event.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (!file) return;
+const ACCEPTED_PHOTO_TYPES = ['image/jpeg', 'image/png'];
 
+/** The picked / dropped file waiting in the crop modal (null = crop modal closed). */
+const cropFile = ref<File | null>(null);
+const cropError = ref('');
+const photoError = ref('');
+const isDraggingPhoto = ref(false);
+let dragDepth = 0;
+
+/** Step 1: validate the file and open the crop modal. Nothing is uploaded yet. */
+async function queuePhotoForCrop(file: File | null | undefined): Promise<void> {
+    if (!file || !canManagePhotos.value || uploadingPhoto.value || cropFile.value) return;
+    if (!ACCEPTED_PHOTO_TYPES.includes(file.type)) {
+        photoError.value = file.type === 'image/gif'
+            ? 'GIF images are not supported for profile photos. Please choose a JPG or PNG image.'
+            : 'Please choose a JPG or PNG image.';
+        return;
+    }
+    if (await isAnimatedImage(file)) {
+        photoError.value = 'Animated images are not supported for profile photos. Please choose a JPG or PNG image.';
+        return;
+    }
+    if (cropFile.value) return;
+    const sizeError = checkFileSize(file, UPLOAD_LIMITS.maxProfilePhotoBytes);
+    if (sizeError) {
+        photoError.value = sizeError;
+        return;
+    }
+    photoError.value = '';
+    cropError.value = '';
+    cropFile.value = file;
+}
+
+function handleFileSelected(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    void queuePhotoForCrop(target.files?.[0]);
+    target.value = '';
+}
+
+/* ---- drag & drop (only reacts to real files, only for people who can manage photos) ---- */
+
+function dragHasFiles(e: DragEvent): boolean {
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files');
+}
+
+function handleDragEnter(e: DragEvent): void {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    isDraggingPhoto.value = canManagePhotos.value && !cropFile.value;
+}
+
+function handleDragOver(e: DragEvent): void {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = canManagePhotos.value ? 'copy' : 'none';
+}
+
+function handleDragLeave(e: DragEvent): void {
+    if (!dragHasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) isDraggingPhoto.value = false;
+}
+
+function handleDrop(e: DragEvent): void {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    isDraggingPhoto.value = false;
+    if (!canManagePhotos.value) return;
+    const image = Array.from(e.dataTransfer?.files ?? []).find((f) => f.type.startsWith('image/'));
+    if (!image) {
+        photoError.value = 'Please drop an image file.';
+        return;
+    }
+    void queuePhotoForCrop(image);
+}
+
+/** Step 2: the user confirmed the crop -> upload the cropped square image. */
+async function handleCropConfirm(file: File): Promise<void> {
+    cropError.value = '';
+    const ok = await uploadProfilePhoto(file);
+    if (ok) {
+        cropFile.value = null;
+    } else {
+        cropError.value = 'Could not upload the photo. Please try again.';
+    }
+}
+
+/** The image is over the dimension limit. */
+function handleCropReject(message: string): void {
+    photoError.value = message;
+    cropFile.value = null;
+}
+
+function handleCropCancel(): void {
+    if (!uploadingPhoto.value) cropFile.value = null;
+}
+
+async function uploadProfilePhoto(file: File): Promise<boolean> {
     uploadingPhoto.value = true;
     try {
         let lastProfile: Attachment | null = null;
@@ -177,7 +274,7 @@ async function handleFileSelected(event: Event): Promise<void> {
             if (chatListItem) {
                 chatListItem.profile_photo = lastProfile.thumbnail_url;
             }
-        } else if (isDirectChatSelf.value ) {
+        } else if (isDirectChatSelf.value) {
             lastProfile = await uploadUserProfilePhoto(file);
             if (user.value) {
                 user.value.profile_photo = lastProfile.thumbnail_url;
@@ -189,7 +286,7 @@ async function handleFileSelected(event: Event): Promise<void> {
                 auth.user.profile_photo = lastProfile.thumbnail_url;
             }
         }
-        // --- ADD THIS BLOCK TO SYNC THE NEW PHOTO TO THE GALLERY INSTANTLY ---
+        // Sync the new photo to the gallery instantly
         if (lastProfile && profileImageGallery.value) {
             profileImageGallery.value.addSlide({
                 id: Number(lastProfile.id),
@@ -200,11 +297,12 @@ async function handleFileSelected(event: Event): Promise<void> {
                 type: lastProfile.mime_type || 'image/jpeg',
             });
         }
+        return true;
     } catch (error) {
         console.error('Failed to upload profile photo', error);
+        return false;
     } finally {
         uploadingPhoto.value = false;
-        target.value = '';
     }
 }
 
@@ -740,6 +838,11 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     chatMediaLastPage.value = 1;
     chatMediaHasMore.value = false;
     activeTab.value = 'info';
+    cropFile.value = null;
+    cropError.value = '';
+    photoError.value = '';
+    isDraggingPhoto.value = false;
+    dragDepth = 0;
     memberRoleFilter.value = 'all';
     memberSort.value = 'role';
     memberDirection.value = 'asc';
@@ -864,7 +967,21 @@ defineExpose({
 <template>
     <Modal ref="modal" width-class="max-w-[500px] w-[90%]" height-class="h-[80%]">
         <ProfileImageGallery ref="profileImageGallery" :can-delete="canManagePhotos" @delete="handlePhotoDelete" />
-        <div class="relative flex flex-col h-full max-h-[95vh]" id="profile-modal-wrapper">
+        <ImageCropModal :file="cropFile" title="Crop profile photo" confirm-text="Upload" shape="circle"
+            :max-size="1024" :max-input-dimension="UPLOAD_LIMITS.maxImageDimension" :busy="uploadingPhoto"
+            :error="cropError" @confirm="handleCropConfirm" @cancel="handleCropCancel" @reject="handleCropReject" />
+        <div class="relative flex flex-col h-full max-h-[95vh]" id="profile-modal-wrapper"
+            @dragenter.stop="handleDragEnter" @dragover.stop="handleDragOver" @dragleave.stop="handleDragLeave"
+            @drop.stop="handleDrop">
+            <!-- Drop cue (photo managers only) -->
+            <div v-if="isDraggingPhoto"
+                class="absolute inset-0 z-30 flex items-center justify-center m-2 border-2 border-blue-500 border-dashed pointer-events-none rounded-2xl bg-blue-500/10 backdrop-blur-[2px]">
+                <span
+                    class="px-5 py-3 text-sm font-medium text-blue-600 shadow-lg dark:text-blue-400 rounded-xl bg-white/90 dark:bg-gray-800/90">
+                    Drop an image to set it as the profile photo
+                </span>
+            </div>
+
             <button type="button" @click="close"
                 class="absolute top-2 left-2 z-10 p-3 rounded-full cursor-pointer text-gray-400 hover:text-gray-500 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 aria-label="Close">
@@ -889,10 +1006,12 @@ defineExpose({
                     <!-- Separate camera button badge to trigger profile image upload -->
                     <button v-if="canManagePhotos" type="button" @click="triggerPhotoUpload" :disabled="uploadingPhoto"
                         class="absolute bottom-0 right-0 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition-colors cursor-pointer"
-                        aria-label="Upload profile photo">
+                        aria-label="Upload profile photo" title="Upload profile photo">
                         <CameraIcon class="size-4" />
                     </button>
                 </div>
+
+                <p v-if="photoError" role="alert" class="mt-2 text-xs text-red-500">{{ photoError }}</p>
 
                 <h2 class="mt-3 text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {{ chat?.name || user?.name || auth.user?.name || '...' }}
@@ -1375,7 +1494,7 @@ defineExpose({
                                             formatMediaDuration(getMediaDuration(item)) }}</span>
                                         <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item)) }}</span>
                                         <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
-                                            }}</span>
+                                        }}</span>
                                     </div>
                                 </div>
                             </article>

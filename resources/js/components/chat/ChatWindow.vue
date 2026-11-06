@@ -403,9 +403,13 @@ async function toggleMute(): Promise<void> {
 
 /* ------------------------------------------------------------ drag & drop */
 
+function dragHasFiles(e: DragEvent): boolean {
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files');
+}
+
 function handleDragOver(e: DragEvent): void {
     e.preventDefault();
-    isDraggingOver.value = true;
+    isDraggingOver.value = dragHasFiles(e) && canSend.value && !editingMessage.value;
 }
 
 function handleDragLeave(e: DragEvent): void {
@@ -418,8 +422,11 @@ function handleDragLeave(e: DragEvent): void {
 function handleDrop(e: DragEvent): void {
     e.preventDefault();
     isDraggingOver.value = false;
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        attachments.value.push(...Array.from(e.dataTransfer.files));
+    if (!canSend.value || editingMessage.value) return;
+    const files = e.dataTransfer?.files;
+    // The composer sends images through the crop modal first, other files straight to the tray.
+    if (files && files.length > 0) {
+        composerRef.value?.addFiles(Array.from(files));
     }
 }
 
@@ -462,7 +469,7 @@ watch(
 );
 
 onKeyStroke('Escape', () => {
-    if (hasOpenOverlay.value) return;
+    if (hasOpenOverlay.value || composerRef.value?.isCropping) return;
     if (editingMessage.value) {
         cancelEdit();
         return;
@@ -485,7 +492,7 @@ onBeforeUnmount(cancelRead);
             class="absolute inset-0 z-51 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px] border-2 border-dashed border-blue-500 pointer-events-none rounded-lg m-2">
             <div
                 class="px-6 py-3 bg-white/90 dark:bg-gray-800/90 text-blue-600 dark:text-blue-400 font-medium rounded-xl shadow-lg flex items-center gap-2">
-                <span>Drop files here to attach</span>
+                <span>Drop images or files here to attach</span>
             </div>
         </div>
         <!-- Header -->
@@ -570,12 +577,13 @@ onBeforeUnmount(cancelRead);
                             </span>
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
-                            :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time" :updated-at="row.updatedAt"
-                            :is-sent="row.isSent" :sender-name="row.senderName" :sender-profile="row.senderProfile"
-                            :sender-slug="row.senderSlug" :sender-id="row.senderId" :attachments="row.attachments"
-                            :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to"
-                            :reply-author="replyAuthorOf(row)" :forwarded-from="messageOf(row)?.forwarded_from"
-                            @jump-to-reply="jumpToMessage" :is-menu-open="activeMenuMessage?.key === row.key"
+                            :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time"
+                            :updated-at="row.updatedAt" :is-sent="row.isSent" :sender-name="row.senderName"
+                            :sender-profile="row.senderProfile" :sender-slug="row.senderSlug" :sender-id="row.senderId"
+                            :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
+                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
+                            :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
+                            :is-menu-open="activeMenuMessage?.key === row.key"
                             @open-menu="handleOpenMessageMenu(row, $event)" />
                     </section>
                 </div>
