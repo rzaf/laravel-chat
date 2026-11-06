@@ -39,6 +39,10 @@ export default defineStore('auth', () => {
             name: response.data.name,
             username: response.data.username,
             email: response.data.email,
+            phone: response.data.phone,
+            profile_photo: response.data.profile_photo,
+            bio: response.data.bio,
+            created_at: response.data.created_at,
         };
     }
 

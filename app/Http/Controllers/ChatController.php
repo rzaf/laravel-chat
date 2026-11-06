@@ -287,7 +287,7 @@ class ChatController extends Controller
         }
 
         // only direct chats have a "peer" user to describe
-        $user = (($chat->type ?? 'direct') != 'direct') ? null : User::where('username', $slug)->first();
+        $user = (($chat->type ?? 'direct') != 'direct') ? null : User::where('username', $slug)->with('profilePhoto')->first();
 
         return response()->json([
             'chat' => $chat,

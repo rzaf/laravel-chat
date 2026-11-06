@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Http\Controllers;
+
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -45,6 +47,7 @@ class AuthController extends Controller
         $login = strtolower(trim($validated['login']));
         $user = User::where('username', $login)
             ->orWhere('email', $login)
+            ->with('profilePhoto')
             ->first();
 
         if (!$user || !\Hash::check($validated['password'], $user->password)) {
@@ -58,7 +61,7 @@ class AuthController extends Controller
         // DB::table('personal_access_tokens')->where(['tokenable_id' => $user->id])->delete();
         return response([
             'token' => $user->createToken('access token')->plainTextToken,
-            'data' => $user,
+            'data' => new UserResource($user),
         ], 200);
     }
 
@@ -103,7 +106,7 @@ class AuthController extends Controller
 
         return response([
             'message' => 'user created',
-            'data' => $user,
+            'data' => new UserResource($user),
             'token' => $user->createToken('access token')->plainTextToken,
         ], 201);
     }
