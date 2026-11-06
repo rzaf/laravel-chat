@@ -76,14 +76,14 @@ router.onError((e) => console.error('router error', e));
             }" />
 
         <!-- Main Workspace Column (Chat List, Chat Window, and Global Audio Player stacked vertically) -->
-        <div class="flex flex-col flex-1 h-full min-w-0 relative bg-gray-100 dark:bg-gray-900">
+        <div class="flex flex-col flex-1 h-full min-w-0 relative ">
 
             <!-- Upper workspace area (ChatList and Empty/ChatWindow) -->
             <div class="relative flex flex-1 min-h-0 w-full">
                 <!-- Chat List remains visible on mobile; on mobile when a chat is selected, we slide the chat window over/across -->
                 <ChatList class="w-full lg:w-96 shrink-0 h-full" @toggle-menu="showSidebar = !showSidebar" />
 
-                <div class="flex flex-col items-center justify-center bg-gray-100 dark:bg-gray-900 w-full h-full">
+                <div class="flex flex-col items-center justify-center bg-linear-to-b from-slate-50 to-slate-100 dark:from-gray-900 dark:to-gray-900 w-full h-full">
                     <h2 class="text-lg italic font-light">
                         {{ pageNotFound ? 'page not found !!!' : 'no chat is selected' }}
                     </h2>
@@ -91,7 +91,7 @@ router.onError((e) => console.error('router error', e));
 
                 <Transition name="slide-chat">
                     <div v-if="chat.currentChat != null"
-                        class="absolute inset-0 lg:left-96 lg:w-[calc(100%-24rem)] w-full h-full bg-gray-100 dark:bg-gray-900 z-20">
+                        class="absolute inset-0 lg:left-96 lg:w-[calc(100%-24rem)] w-full h-full bg-linear-to-b from-slate-50 to-slate-100 dark:from-gray-900 dark:to-gray-900 z-20">
                         <ChatWindow :chat="chat.currentChat" @open-chat-profile="(chatItem) => {
                             console.log(`openning chat profile for : ${chatItem.slug}`, chatItem);
                             profileModalRef?.open(chatItem.slug, chatItem);

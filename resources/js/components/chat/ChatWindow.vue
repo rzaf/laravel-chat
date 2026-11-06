@@ -124,16 +124,38 @@ const emptyTitle = computed(() => {
     return `No messages with ${name} yet`;
 });
 
-/** Timeline grouped into date sections (a leading unlabeled group if no separator comes first). */
-const groups = computed<MessageGroup[]>(() => {
-    const out: MessageGroup[] = [];
+
+/** Timeline grouped into date sections with consecutive author detection. */
+const groups = computed(() => {
+    const out: Array<{ key: string; label: string; messages: Array<any> }> = [];
+
     timeline.value.forEach((item, index) => {
         if (isDateSeparator(item)) {
             out.push({ key: `date-${index}`, label: item.label, messages: [] });
             return;
         }
         if (!out.length) out.push({ key: 'start', label: '', messages: [] });
-        out[out.length - 1].messages.push({
+
+        const currentGroup = out[out.length - 1];
+        const prevItem = timeline.value[index - 1];
+        const nextItem = timeline.value[index + 1];
+
+        // First message of a run: previous item is missing, a date separator, or another author
+        const isFirst = !(
+            prevItem &&
+            !isDateSeparator(prevItem) &&
+            prevItem.sender_id === item.sender_id
+        );
+
+        // Determine if next message belongs to the same sender on the same date separator interval
+        const isConsecutive = !!(
+            nextItem &&
+            !isDateSeparator(nextItem) &&
+            nextItem.sender_id === item.sender_id
+        );
+        
+
+        currentGroup.messages.push({
             id: String(item.id),
             key: item.id ?? `m-${index}`,
             text: item.content,
@@ -141,9 +163,13 @@ const groups = computed<MessageGroup[]>(() => {
             time: item.created_at,
             updatedAt: item.updated_at,
             forwardedFrom: item.forwarded_from,
-            isSent: isMine(item),
+            isSent: chatStore.currentChat?.type !== 'channel' && isMine(item),
+            isFirst: chatStore.currentChat?.type !== 'channel' && isFirst,
+            isConsecutive:chatStore.currentChat?.type !== 'channel' && isConsecutive,
             senderName: item.sender?.name,
-            senderProfile: item.sender?.profile_photo,
+            // own messages fall back to the logged-in user's picture
+            senderProfile: item.sender?.profile_photo
+                ?? (isMine(item) ? (auth.user as { profile_photo?: string } | null)?.profile_photo : undefined),
             senderSlug: item.sender?.username,
             senderId: item.sender_id,
             attachments: item.attachments,
@@ -489,9 +515,9 @@ onBeforeUnmount(cancelRead);
         @drop="handleDrop">
         <!-- Drag & Drop Overlay Cue -->
         <div v-if="isDraggingOver"
-            class="absolute inset-0 z-51 flex items-center justify-center bg-blue-500/10 backdrop-blur-[2px] border-2 border-dashed border-blue-500 pointer-events-none rounded-lg m-2">
+            class="absolute inset-0 z-51 flex items-center justify-center m-3 border-2 border-dashed border-blue-500 pointer-events-none bg-blue-500/10 backdrop-blur-sm rounded-3xl">
             <div
-                class="px-6 py-3 bg-white/90 dark:bg-gray-800/90 text-blue-600 dark:text-blue-400 font-medium rounded-xl shadow-lg flex items-center gap-2">
+                class="flex items-center gap-2 px-6 py-3 font-medium text-blue-600 shadow-xl bg-white/95 dark:bg-gray-800/95 dark:text-blue-400 rounded-2xl ring-1 ring-black/5">
                 <span>Drop images or files here to attach</span>
             </div>
         </div>
@@ -504,11 +530,15 @@ onBeforeUnmount(cancelRead);
             </RouterLink>
 
             <button type="button"
-                class="cursor-pointer flex items-center min-w-0 gap-2 px-2 py-1 text-left transition-colors rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+                class="flex items-center min-w-0 gap-3 py-1 pl-1.5 pr-3 text-left transition-colors cursor-pointer rounded-2xl hover:bg-gray-100/80 dark:hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
                 @click="emit('openChatProfile', chat)">
-                <Avatar class="size-10 shrink-0" :src="chat.profile_photo || '/storage/default-profile.png'" />
+                <span class="relative shrink-0">
+                    <Avatar class="size-10 shadow-sm" :src="chat.profile_photo || '/storage/default-profile.png'" />
+                    <span v-if="chatType === 'direct' && chat.is_online" aria-hidden="true"
+                        class="absolute bottom-0 right-0 block rounded-full size-3 bg-emerald-500 ring-2 ring-white dark:ring-gray-900" />
+                </span>
                 <span class="flex flex-col min-w-0">
-                    <span class="text-base font-medium leading-tight text-gray-900 truncate dark:text-gray-100">
+                    <span class="text-[15px] font-semibold leading-tight text-gray-900 truncate dark:text-gray-50">
                         {{ chat.name ?? chat.slug }}
                     </span>
                     <span
@@ -530,7 +560,7 @@ onBeforeUnmount(cancelRead);
         <Transition enter-from-class="opacity-0 translate-y-2" enter-active-class="transition duration-150"
             leave-to-class="opacity-0 translate-y-2" leave-active-class="transition duration-150">
             <button v-show="showGoToBottom" type="button" aria-label="Scroll to latest message"
-                class="absolute cursor-pointer z-30 grid bg-white rounded-full shadow-lg left-4 bottom-24 size-11 place-items-center dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                class="absolute z-30 grid transition-colors bg-white rounded-full shadow-lg cursor-pointer ring-1 ring-black/5 left-4 bottom-24 size-11 place-items-center dark:bg-gray-800 dark:ring-white/10 hover:bg-gray-50 dark:hover:bg-gray-700"
                 @click="goToBottom">
                 <ChevronDownIcon class="size-7 fill-gray-700 dark:fill-gray-200" />
                 <span v-show="(chat.unseen_messages_count ?? 0) > 0"
@@ -557,8 +587,9 @@ onBeforeUnmount(cancelRead);
                 <!-- Empty conversation -->
                 <div v-else-if="isChatEmpty === true || userExists === false"
                     class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
-                    <Avatar class="mb-2 size-20" :src="chat.profile_photo || '/storage/default-profile.png'" />
-                    <h2 class="text-lg font-medium text-gray-800 dark:text-gray-100">
+                    <Avatar class="mb-3 shadow-xl size-24 ring-4 ring-white dark:ring-gray-800"
+                        :src="chat.profile_photo || '/storage/default-profile.png'" />
+                    <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
                         {{ emptyTitle }}
                     </h2>
                     <p v-if="userExists !== false && canSend" class="text-sm text-gray-500 dark:text-gray-400">
@@ -568,22 +599,24 @@ onBeforeUnmount(cancelRead);
 
                 <!-- Message timeline -->
                 <div v-else ref="listRef" role="log" aria-live="polite"
-                    class="flex-1 w-full min-h-0 px-1 pt-3 pb-2 overflow-y-auto scrollable" @scroll="handleScroll">
+                    class="flex-1 w-full min-h-0 px-2 pt-3 pb-3 overflow-y-auto sm:px-5 scrollable "
+                    @scroll="handleScroll">
                     <section v-for="group in groups" :key="group.key">
                         <div v-if="group.label" class="sticky z-40 w-fit mx-auto flex justify-center py-1.5 top-1">
                             <span dir="rtl"
-                                class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 backdrop-blur dark:bg-gray-700/90 dark:text-gray-200">
+                                class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 dark:bg-gray-700/90 dark:text-gray-200">
                                 {{ group.label }}
                             </span>
                         </div>
                         <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
                             :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time"
-                            :updated-at="row.updatedAt" :is-sent="row.isSent" :sender-name="row.senderName"
+                            :updated-at="row.updatedAt" :is-sent="row.isSent" :is-first="row.isFirst"
+                            :is-consecutive="row.isConsecutive" :sender-name="row.senderName"
                             :sender-profile="row.senderProfile" :sender-slug="row.senderSlug" :sender-id="row.senderId"
                             :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
                             :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
-                            :forwarded-from="messageOf(row)?.forwarded_from" @jump-to-reply="jumpToMessage"
-                            :is-menu-open="activeMenuMessage?.key === row.key"
+                            :forwarded-from="messageOf(row)?.forwarded_from"
+                            :is-menu-open="activeMenuMessage?.key === row.key" @jump-to-reply="jumpToMessage"
                             @open-menu="handleOpenMessageMenu(row, $event)" />
                     </section>
                 </div>
@@ -592,10 +625,10 @@ onBeforeUnmount(cancelRead);
 
         <!-- Reply Preview Banner -->
         <div v-if="replyingToMessage"
-            class="flex items-center justify-between px-4 py-2 bg-gray-100 dark:bg-gray-700 border-t border-gray-200 dark:border-gray-600">
+            class="flex items-center justify-between px-4 py-2.5 border-t border-gray-200/70 bg-white/90 backdrop-blur-xl dark:bg-gray-900/90 dark:border-white/10">
             <div class="flex items-center gap-3 min-w-0">
                 <ReplyIcon class="size-5 text-blue-600 dark:text-blue-400 shrink-0" />
-                <div class="flex flex-col min-w-0 pl-2 border-l-2 border-blue-500">
+                <div class="flex flex-col min-w-0 pl-2.5 border-l-[3px] border-blue-500 rounded-xs">
                     <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 truncate">
                         Replying to {{ replyPreviewAuthor }}
                     </span>
@@ -605,7 +638,7 @@ onBeforeUnmount(cancelRead);
                 </div>
             </div>
             <button type="button" aria-label="Cancel reply"
-                class="grid rounded-full size-7 place-items-center hover:bg-gray-200 dark:hover:bg-gray-600 cursor-pointer"
+                class="grid transition-colors rounded-full cursor-pointer size-8 place-items-center hover:bg-gray-100 dark:hover:bg-white/10"
                 @click="replyingToMessage = null">
                 <CloseIcon class="size-4 text-gray-500" />
             </button>
@@ -613,10 +646,10 @@ onBeforeUnmount(cancelRead);
 
         <!-- Edit Preview Banner -->
         <div v-if="editingMessage"
-            class="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-800/50">
+            class="flex items-center justify-between px-4 py-2.5 border-t bg-amber-50/90 backdrop-blur-xl border-amber-200/70 dark:bg-amber-950/40 dark:border-amber-800/40">
             <div class="flex items-center gap-3 min-w-0">
                 <EditIcon class="size-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <div class="flex flex-col min-w-0 pl-2 border-l-2 border-amber-500">
+                <div class="flex flex-col min-w-0 pl-2.5 border-l-[3px] border-amber-500 rounded-xs">
                     <span class="text-xs font-semibold text-amber-600 dark:text-amber-400 truncate">
                         Edit message
                     </span>
@@ -626,7 +659,7 @@ onBeforeUnmount(cancelRead);
                 </div>
             </div>
             <button type="button" aria-label="Cancel edit"
-                class="grid rounded-full size-7 place-items-center hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer"
+                class="grid transition-colors rounded-full cursor-pointer size-8 place-items-center hover:bg-amber-100 dark:hover:bg-amber-900/50"
                 @click="cancelEdit">
                 <CloseIcon class="size-4 text-gray-500" />
             </button>
@@ -638,9 +671,9 @@ onBeforeUnmount(cancelRead);
 
         <!-- Previewing a public group / channel -->
         <div v-else-if="canJoin"
-            class="flex items-center justify-center px-4 py-3 bg-white border-t border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+            class="flex items-center justify-center px-4 py-3 border-t border-gray-200/70 bg-white/90 backdrop-blur-xl dark:bg-gray-900/90 dark:border-white/10">
             <button type="button" :disabled="joining"
-                class="px-6 py-2 text-sm font-medium text-blue-600 transition-colors rounded-full cursor-pointer hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10 disabled:opacity-50"
+                class="px-7 py-2 text-sm font-semibold text-blue-600 transition-colors rounded-full cursor-pointer bg-blue-50 hover:bg-blue-100 dark:text-blue-300 dark:bg-blue-500/15 dark:hover:bg-blue-500/25 disabled:opacity-50"
                 @click="handleJoin">
                 {{ joining ? 'Joining…' : chatType === 'channel' ? 'Join channel' : 'Join group' }}
             </button>
@@ -648,9 +681,9 @@ onBeforeUnmount(cancelRead);
 
         <!-- Member who can't post: channel (mute toggle) or read-only group -->
         <div v-else
-            class="flex items-center justify-center px-4 py-3 bg-white border-t border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+            class="flex items-center justify-center px-4 py-3 border-t border-gray-200/70 bg-white/90 backdrop-blur-xl dark:bg-gray-900/90 dark:border-white/10">
             <button v-if="chatType === 'channel'" type="button"
-                class="px-6 py-2 text-sm font-medium text-blue-600 transition-colors rounded-full cursor-pointer hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
+                class="px-7 py-2 text-sm font-semibold text-blue-600 transition-colors rounded-full cursor-pointer bg-blue-50 hover:bg-blue-100 dark:text-blue-300 dark:bg-blue-500/15 dark:hover:bg-blue-500/25"
                 @click="toggleMute">
                 {{ chat.muted ? 'Unmute' : 'Mute' }}
             </button>
@@ -665,7 +698,7 @@ onBeforeUnmount(cancelRead);
             <ul class="py-1 space-y-0.5 text-sm">
                 <li v-if="canSend">
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('reply')">
                         <ReplyIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Reply</span>
@@ -673,7 +706,7 @@ onBeforeUnmount(cancelRead);
                 </li>
                 <li v-if="canSend && activeMenuMessage?.isSent && activeMenuMessage?.forwardedFrom == null">
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('edit')">
                         <EditIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Edit</span>
@@ -681,7 +714,7 @@ onBeforeUnmount(cancelRead);
                 </li>
                 <li>
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('forward')">
                         <ForwardIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Forward</span>
@@ -689,7 +722,7 @@ onBeforeUnmount(cancelRead);
                 </li>
                 <li>
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('copy')">
                         <CopyIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Copy Text</span>
@@ -697,7 +730,7 @@ onBeforeUnmount(cancelRead);
                 </li>
                 <li>
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600/70 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('select')">
                         <CircleCheckIcon class="size-4 text-gray-500 dark:text-gray-400 shrink-0" />
                         <span>Select</span>
@@ -706,7 +739,7 @@ onBeforeUnmount(cancelRead);
                 <div v-if="isMember" class="my-1 border-t border-gray-100 dark:border-gray-600" />
                 <li v-if="isMember">
                     <button type="button"
-                        class="flex items-center w-full gap-2 px-2 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors"
+                        class="flex items-center w-full gap-2 px-2 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors cursor-pointer"
                         @click="handleMenuAction('delete')">
                         <TrashIcon class="size-4 text-red-500 shrink-0" />
                         <span>Delete</span>

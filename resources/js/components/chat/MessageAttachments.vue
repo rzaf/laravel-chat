@@ -557,13 +557,13 @@ function revealImage(fileId: number, event: Event) {
 </script>
 
 <template>
-    <div v-if="attachments?.length" class="flex flex-col gap-2 mb-2 max-w-full">
+    <div v-if="attachments?.length" class="flex flex-col max-w-full min-w-0 gap-2 mb-2">
         <!-- ================= MEDIA ATTACHMENTS (SINGLE OR GRID) ================= -->
         <div v-if="mediaAttachments.length > 0" ref="galleryRef" class="w-full">
             <!-- SINGLE MEDIA ITEM -->
             <div v-if="mediaAttachments.length === 1">
                 <a v-for="(file, index) in mediaAttachments" :key="file.id" target="_blank" rel="noreferrer"
-                    class="pswp-media-item relative overflow-hidden rounded-lg bg-gray-400 dark:bg-gray-600 flex justify-center items-center group cursor-pointer block max-w-full"
+                    class="pswp-media-item relative overflow-hidden rounded-xl bg-gray-300 dark:bg-gray-700 ring-1 ring-inset ring-black/5 dark:ring-white/10 flex justify-center items-center group cursor-pointer block max-w-full"
                     :style="singleImageStyle(file)" :ref="(el: any) => observeAttachment(el, file)"
                     @click.prevent="handleMediaClick(file, index)">
                     <template v-if="isVideo(file.type)">
@@ -617,12 +617,12 @@ function revealImage(fileId: number, event: Event) {
             </div>
 
             <!-- MULTI-MEDIA GRID (>= 2 MEDIA) -->
-            <div v-else class="grid gap-0.5 rounded-lg overflow-hidden w-[360px] sm:w-[480px] max-w-full" :class="{
+            <div v-else class="grid gap-1 rounded-xl overflow-hidden w-[360px] sm:w-[480px] max-w-full" :class="{
                 'grid-cols-2 aspect-[4/3]': mediaAttachments.length === 2,
                 'grid-cols-2 grid-rows-2 aspect-square': mediaAttachments.length >= 3,
             }">
                 <a v-for="(file, index) in visibleMedia" :key="file.id" target="_blank" rel="noreferrer"
-                    class="pswp-media-item relative overflow-hidden bg-gray-700  group cursor-pointer w-full h-full block"
+                    class="pswp-media-item relative overflow-hidden bg-gray-300 dark:bg-gray-700 group cursor-pointer w-full h-full block"
                     :class="[
                         mediaAttachments.length === 3 && index === 0 ? 'row-span-2' : '',
                     ]" :ref="(el: any) => observeAttachment(el, file)" @click.prevent="handleMediaClick(file, index)">
@@ -683,57 +683,50 @@ function revealImage(fileId: number, event: Event) {
         </div>
 
         <!-- ================= NON-MEDIA ATTACHMENTS (DOCS/AUDIO) ================= -->
-        <div v-if="nonMediaAttachments.length > 0" class="flex flex-col ">
-            <div v-for="file in nonMediaAttachments" :key="file.id"
-                class="overflow-hidden rounded-md flex justify-center align-middle"
+        <div v-if="nonMediaAttachments.length > 0" class="flex flex-col gap-1.5 min-w-0">
+            <div v-for="file in nonMediaAttachments" :key="file.id" class="min-w-0"
                 :ref="(el: any) => observeAttachment(el, file)">
-                <AudioMessage v-if="isAudio(file.type)" :file="file" :url="getActiveUrl(file)" class="my-1" />
+                <AudioMessage v-if="isAudio(file.type)" :file="file" :url="getActiveUrl(file)" :is-sent="isSent" />
 
+                <!-- Downloaded file -->
                 <a v-else-if="isLoaded(file)" :href="getActiveUrl(file)" :download="file.name"
-                    class="flex items-center gap-3 max-w-96 p-2.5 rounded-lg border w-full" :class="{
-                        'bg-blue-800/40 border-blue-500/50 text-white': isSent,
-                        'bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-500': !isSent,
-                    }">
-                    <div class="p-2 bg-gray-200 dark:bg-gray-600 rounded-md">
-                        <FileIcon class="w-6 h-6" />
-                    </div>
-                    <div class="flex flex-col min-w-0">
-                        <span class="truncate text-sm font-medium">{{ file.name }}</span>
-                        <span class="text-xs opacity-70">{{ formatBytes(file.size) }}</span>
-                    </div>
+                    class="flex items-center w-64 max-w-full gap-3 p-2 pr-3 transition-colors rounded-2xl"
+                    :class="isSent
+                        ? 'bg-white/15 hover:bg-white/25 text-white'
+                        : 'bg-gray-100 hover:bg-gray-200/70 text-gray-900 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-100'">
+                    <span class="grid rounded-xl size-11 shrink-0 place-items-center"
+                        :class="isSent ? 'bg-white/20 text-white' : 'bg-blue-500/10 text-blue-600 dark:bg-blue-400/15 dark:text-blue-300'">
+                        <FileIcon class="size-5" />
+                    </span>
+                    <span class="flex flex-col min-w-0 gap-0.5">
+                        <span class="text-sm font-medium leading-tight truncate">{{ file.name }}</span>
+                        <span class="text-xs leading-tight opacity-65">{{ formatBytes(file.size) }}</span>
+                    </span>
                 </a>
 
-                <div v-else
-                    class="group relative flex items-center gap-3 w-52 p-2.5 rounded-lg border-gray-300 dark:border-gray-600 bg-gray-50/50 dark:bg-gray-800/30 overflow-hidden min-h-[58px]"
-                    :class="{ 'animate-pulse': downloading[file.id] }">
-                    <div
-                        class="p-2 bg-gray-200 dark:bg-gray-700 rounded-md relative flex items-center justify-center min-w-10 min-h-10">
-                        <FileIcon class="w-6 h-6" />
-                    </div>
-
-                    <div class="flex flex-col min-w-0 flex-1">
-                        <span class="truncate text-sm font-medium">{{ file.name }}</span>
-                        <span class="text-xs opacity-60">{{ formatBytes(file.size) }}</span>
-                    </div>
-
-                    <div v-if="!downloading[file.id]"
-                        class="absolute inset-0 bg-black/75 flex items-center justify-center gap-2 text-white cursor-pointer hover:bg-black/85 transition-colors"
-                        @click="manualLoad(file)">
-                        <DownloadIcon class="w-8 h-8 mb-1" />
-                        <span class="text-xs font-semibold">Download ({{ formatBytes(file.size) }})</span>
-                    </div>
-
-                    <div v-if="downloading[file.id]"
-                        class="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <svg class="animate-spin h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                            </circle>
-                            <path class="opacity-75" fill="currentColor"
-                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                            </path>
+                <!-- Not downloaded yet: tap anywhere on the card -->
+                <button v-else type="button" :disabled="downloading[file.id]"
+                    class="flex items-center w-64 max-w-full gap-3 p-2 pr-3 text-left transition-colors cursor-pointer rounded-2xl disabled:cursor-progress"
+                    :class="isSent
+                        ? 'bg-white/15 hover:bg-white/25 text-white'
+                        : 'bg-gray-100 hover:bg-gray-200/70 text-gray-900 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-100'"
+                    @click.stop="manualLoad(file)">
+                    <span class="relative grid rounded-full size-11 shrink-0 place-items-center"
+                        :class="isSent ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'">
+                        <svg v-if="downloading[file.id]" class="size-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                            <path class="opacity-90" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                         </svg>
-                    </div>
-                </div>
+                        <DownloadIcon v-else class="size-5" />
+                    </span>
+                    <span class="flex flex-col min-w-0 gap-0.5">
+                        <span class="text-sm font-medium leading-tight truncate">{{ file.name }}</span>
+                        <span class="text-xs leading-tight opacity-65">
+                            {{ downloading[file.id] ? 'Downloading…' : formatBytes(file.size) }}
+                        </span>
+                    </span>
+                </button>
             </div>
         </div>
     </div>

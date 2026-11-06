@@ -22,14 +22,13 @@ const props = defineProps<{
     senderId?: number;
     updatedAt?: string;
     isSent?: boolean;
+    isFirst?: boolean; // First message of a run from the same author
+    isConsecutive?: boolean; // True if followed by another message from the same author (i.e. NOT the last of the run)
     attachments?: Attachment[];
     isMenuOpen?: boolean;
-    /** The message this one replies to. */
-    replyToMessageId?: number; // shows reply existed even when deleted
+    replyToMessageId?: number;
     replyTo?: Message | null;
-    /** Display name of the replied-to message's author ("You" or the contact's name). */
     replyAuthor: string | null;
-    /** The chat (direct, group or channel) this message was forwarded from. */
     forwardedFrom?: Chat | null;
 }>();
 
@@ -38,22 +37,28 @@ const emit = defineEmits<{
     (e: 'jumpToReply', messageId: number | string): void;
 }>();
 
+/* ----------------------------------------------------------- grouping */
+
+const isFirstOfRun = computed(() => props.isFirst !== false);
+const isLastOfRun = computed(() => !props.isConsecutive);
+
 /* --------------------------------------------------------------- sender */
 
-/** Same author -> same colour. Full class names so Tailwind can see them. */
 const SENDER_COLORS = [
-    'text-red-600 dark:text-red-400',
-    'text-orange-600 dark:text-orange-400',
+    'text-red-500 dark:text-red-400',
+    'text-orange-500 dark:text-orange-400',
     'text-amber-600 dark:text-amber-400',
-    'text-green-600 dark:text-green-400',
+    'text-emerald-600 dark:text-emerald-400',
     'text-teal-600 dark:text-teal-400',
     'text-cyan-600 dark:text-cyan-400',
-    'text-blue-600 dark:text-blue-400',
-    'text-violet-600 dark:text-violet-400',
-    'text-pink-600 dark:text-pink-400',
+    'text-blue-500 dark:text-blue-400',
+    'text-violet-500 dark:text-violet-400',
+    'text-pink-500 dark:text-pink-400',
 ];
 
-const showSender = computed(() => props.chatType === 'group' && !props.isSent && !!props.senderName);
+const showSender = computed(
+    () => props.chatType === 'group' && !props.isSent && !!props.senderName && isFirstOfRun.value,
+);
 
 const senderColor = computed(() => {
     const key = String(props.senderId ?? props.senderName ?? '');
@@ -62,6 +67,18 @@ const senderColor = computed(() => {
         hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
     }
     return SENDER_COLORS[hash % SENDER_COLORS.length];
+});
+
+/* --------------------------------------------------------- bubble shape */
+
+/**
+ * Messages in a run are visually "stitched" together: the corners on the avatar side
+ * tighten up, so a run reads as one stack with a small tail at the bottom.
+ */
+const shapeClasses = computed(() => {
+    const sideTop = isFirstOfRun.value ? '' : props.isSent ? 'rounded-tr-md' : 'rounded-tl-md';
+    const sideBottom = props.isSent ? 'rounded-br-md' : 'rounded-bl-md';
+    return [sideTop, sideBottom];
 });
 
 /* ---------------------------------------------------------------- reply */
@@ -83,86 +100,98 @@ const forwardSource = computed(() => props.forwardedFrom as ForwardSource | null
 const forwardName = computed(() => forwardSource.value?.name ?? forwardSource.value?.slug ?? 'Unknown');
 const forwardKind = computed(() => forwardSource.value?.type);
 
-/* -------------------------------------------------------------- edit check */
+/* ------------------------------------------------------------ edit check */
 
 const isEdited = computed(() => {
     if (!props.updatedAt || !props.time) return false;
     return new Date(props.updatedAt).getTime() > new Date(props.time).getTime() + 1000;
 });
+
+const formattedTime = useDateFormat(() => props.time, 'HH:mm');
 </script>
 
 <template>
-    <div class="z-10 flex items-center px-3 my-2 chat" :class="{ 'flex-row-reverse': isSent }">
-        <div class="rounded-xl min-w-32 max-w-[90%] sm:max-w-[75%] overflow-hidden transition-all duration-150" :class="{
-            'text-gray-200 ml-6 bg-blue-700 shadow-sm': isSent,
-            'mr-6 bg-white dark:bg-gray-600 shadow-sm': !isSent,
-            'ring-2 ring-gray-500 dark:ring-gray-400': isMenuOpen
-        }" @contextmenu.prevent="emit('openMenu', $event)">
+    <div class="chat group relative z-10 flex items-end gap-2 px-1 sm:px-2"
+        :class="[isSent ? 'flex-row-reverse' : 'flex-row', isLastOfRun ? 'mb-3' : 'mb-1']">
+        <!-- Avatar slot: only the LAST message of a run shows the picture; earlier ones keep the space -->
+        <div v-if="props.chatType!='channel'" class="flex items-end shrink-0 size-9">
+            <Avatar v-if="isLastOfRun" class="rounded-full size-9 shadow-md"
+                :src="senderProfile || '/storage/default-profile.png'" />
+        </div>
 
-            <!-- Author (groups only) -->
-            <div v-if="showSender" class="flex items-center gap-1 pt-2 mx-2">
-                <Avatar class="size-5 shrink-0" :src="senderProfile || '/storage/default-profile.png'" />
-                <!-- todo: later change to open chat profile of user -->
-                <RouterLink :to="`/chats/${senderSlug ?? 'unknown'}`">
-                    <p v-if="showSender" class=" text-sm font-semibold truncate" :class="senderColor">
+        <!-- Bubble -->
+        <div class="relative min-w-[5.5rem] max-w-[calc(100%-3.5rem)] sm:max-w-[68%] rounded-[1.25rem] px-3.5 py-2 transition-shadow duration-200"
+            :class="[
+                shapeClasses,
+                isSent
+                    ? 'bg-linear-to-br from-blue-500 via-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20 selection:bg-white/30'
+                    : 'bg-white text-gray-900 shadow-sm shadow-gray-900/5 ring-1 ring-gray-900/5 dark:bg-gray-800 dark:text-gray-100 dark:ring-white/10',
+                isMenuOpen ? 'ring-2 ring-offset-2 ring-blue-400 ring-offset-gray-50 dark:ring-blue-500 dark:ring-offset-gray-900' : '',
+            ]" @contextmenu.prevent="emit('openMenu', $event)">
+            <!-- Group sender name (first message of the run) -->
+            <div v-if="showSender" class="mb-0.5 text-[13px]">
+                <RouterLink :to="`/chats/${senderSlug ?? 'unknown'}`" class="hover:underline">
+                    <span class="font-semibold tracking-tight truncate" :class="senderColor">
                         {{ senderName }}
-                    </p>
+                    </span>
                 </RouterLink>
             </div>
 
             <!-- Forwarded header -->
-            <div v-if="forwardedFrom" class="px-3 pt-2.5 text-xs"
-                :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
-                <p class="flex items-center gap-1 italic opacity-80">
-                    <ForwardIcon class="size-3.5 shrink-0" />
+            <div v-if="forwardedFrom" class="mb-2 text-xs">
+                <p class="flex items-center gap-1 text-[11px] font-medium opacity-75">
+                    <ForwardIcon class="size-3 shrink-0" />
                     Forwarded from
                 </p>
-
                 <p class="flex items-center gap-1.5 mt-1 font-semibold">
-                    <Avatar class="size-5 shrink-0"
+                    <Avatar class="size-4 shrink-0"
                         :src="forwardedFrom.profile_photo || '/storage/default-profile.png'" />
-                    <!-- group -->
-                    <UsersIcon v-if="forwardKind === 'group'" class="size-3.5 shrink-0" />
-                    <!-- channel -->
-                    <MegaphoneIcon v-else-if="forwardKind === 'channel'" class="size-3.5 shrink-0" />
-                    <RouterLink v-if="forwardSource?.slug" :to="`/chats/${forwardSource?.slug ?? 'unknown'}`">
-                        <span class="truncate">{{ forwardName }}</span>
+                    <UsersIcon v-if="forwardKind === 'group'" class="size-3 shrink-0" />
+                    <MegaphoneIcon v-else-if="forwardKind === 'channel'" class="size-3 shrink-0" />
+                    <RouterLink v-if="forwardSource?.slug" :to="`/chats/${forwardSource?.slug ?? 'unknown'}`"
+                        class="truncate hover:underline">
+                        <span>{{ forwardName }}</span>
                     </RouterLink>
                     <span v-else class="truncate">{{ forwardName }}</span>
                 </p>
-                <div class="mt-2 border-t"
-                    :class="isSent ? 'border-white/15' : 'border-black/10 dark:border-white/10'" />
             </div>
 
             <!-- Reply quote -->
             <button v-if="replyToMessageId" type="button"
                 :aria-label="`Go to replied message from ${replyAuthor ?? 'user'}`"
-                class="flex w-[calc(100%-1rem)] mx-2 mt-2 overflow-hidden text-left transition-colors rounded-lg cursor-pointer"
-                :class="isSent ? 'bg-white/15 hover:bg-white/20' : 'bg-blue-50 hover:bg-blue-100 dark:bg-black/20 dark:hover:bg-black/30'"
+                class="relative flex w-full mb-2 overflow-hidden text-left transition-colors cursor-pointer rounded-xl"
+                :class="isSent
+                    ? 'bg-white/15 hover:bg-white/25'
+                    : 'bg-blue-50 hover:bg-blue-100/80 dark:bg-gray-900/60 dark:hover:bg-gray-900'"
                 @click.stop="jumpToReply">
-                <span class="w-1 shrink-0" :class="isSent ? 'bg-blue-200' : 'bg-blue-500 dark:bg-blue-400'" />
-                <span class="flex flex-col min-w-0 px-2 py-1.5 text-xs">
-                    <span v-if="chatType != 'direct'" class="font-semibold truncate"
-                        :class="isSent ? 'text-blue-100' : 'text-blue-600 dark:text-blue-300'">
+                <span class="w-1 shrink-0" :class="isSent ? 'bg-white/80' : 'bg-blue-500'" />
+                <span class="flex flex-col min-w-0 px-2.5 py-1.5 text-xs">
+                    <span v-if="chatType !== 'direct'" class="font-semibold truncate"
+                        :class="isSent ? 'text-white' : 'text-blue-600 dark:text-blue-400'">
                         {{ replyAuthor ?? 'Message' }}
                     </span>
-                    <span v-if="replyTo === null" class="italic opacity-70 text-nowrap">Message unavailable</span>
-                    <span v-else-if="replyText" class="break-words line-clamp-2 opacity-90">{{ replyText }}</span>
-                    <span v-else-if="replyHasAttachment" class="flex items-center gap-1 italic opacity-90">
-                        <PaperClipIcon class="size-3.5 shrink-0" />
+                    <span v-if="replyTo === null" class="italic opacity-70">Message unavailable</span>
+                    <span v-else-if="replyText" class="break-words line-clamp-2 opacity-85">{{ replyText }}</span>
+                    <span v-else-if="replyHasAttachment" class="flex items-center gap-1 italic opacity-85">
+                        <PaperClipIcon class="size-3 shrink-0" />
                         Attachment
                     </span>
                 </span>
             </button>
 
+            <!-- Attachments -->
             <MessageAttachments :attachments="attachments" :is-sent="isSent" />
 
-            <div class="flex flex-col p-2 px-2.5">
-                <p v-if="message" class="text-base whitespace-pre-line wrap-break-word">{{ message }}</p>
-                <div class="flex items-center gap-1.5 self-end ml-2 text-xs leading-none opacity-80">
-                    <span v-if="isEdited" class="italic text-[10px] opacity-75">edited</span>
-                    <span>{{ useDateFormat(time, 'HH:mm A') }}</span>
-                </div>
+            <!-- Text + time -->
+            <div class="flex flex-wrap items-end justify-end gap-x-3 gap-y-0">
+                <p v-if="message" class="flex-1 text-[15px] leading-[1.45] whitespace-pre-line wrap-anywhere min-w-0">{{
+                    message }}</p>
+                <span
+                    class="flex items-center gap-1 ml-auto shrink-0 text-[10.5px] leading-none tabular-nums select-none translate-y-px"
+                    :class="isSent ? 'text-white/70' : 'text-gray-400 dark:text-gray-500'">
+                    <span v-if="isEdited" class="italic">edited</span>
+                    <span>{{ formattedTime }}</span>
+                </span>
             </div>
         </div>
     </div>

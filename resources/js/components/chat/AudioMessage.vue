@@ -179,22 +179,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div ref="root" class="flex w-80 max-w-full items-center gap-3 rounded-2xl p-3 shadow-sm transition-colors sm:w-88"
-        :class="isSent
-                ? 'border border-blue-500/40 bg-blue-600/90 text-white'
-                : 'border border-gray-200/80 bg-gray-50/90 text-gray-800 dark:border-gray-700/80 dark:bg-gray-800/90 dark:text-gray-100'
-            ">
+    <!-- Borderless on purpose: it already lives inside a message bubble -->
+    <div ref="root" class="flex items-center w-72 max-w-full gap-3 py-0.5 pr-1 sm:w-80"
+        :class="isSent ? 'text-white' : 'text-gray-800 dark:text-gray-100'">
         <!-- Play / Pause -->
         <button type="button" @click.stop="onPlay" :aria-label="isLoading
-                ? 'Loading audio'
-                : isPlaying
-                    ? 'Pause'
-                    : 'Play'
+            ? 'Loading audio'
+            : isPlaying
+                ? 'Pause'
+                : 'Play'
             " :aria-busy="isLoading"
-            class="relative grid size-11 shrink-0 cursor-pointer place-items-center rounded-full shadow-md transition active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            class="relative grid size-10 shrink-0 cursor-pointer place-items-center rounded-full shadow-md transition active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             :class="isSent
-                    ? 'bg-white text-blue-600 hover:bg-blue-50'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                ? 'bg-white text-blue-600 hover:bg-blue-50'
+                : 'bg-blue-600 text-white hover:bg-blue-700'
                 ">
             <PauseIcon v-if="isPlaying" class="size-5 fill-current" />
 
@@ -202,15 +200,15 @@ onBeforeUnmount(() => {
 
             <span v-if="isLoading" aria-hidden="true" class="absolute inset-0 animate-spin rounded-full border-2"
                 :class="isSent
-                        ? 'border-blue-600/25 border-t-blue-600'
-                        : 'border-white/25 border-t-white'
+                    ? 'border-blue-600/25 border-t-blue-600'
+                    : 'border-white/25 border-t-white'
                     " />
         </button>
 
         <!-- Waveform & Track Info -->
-        <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div class="flex min-w-0 flex-1 flex-col gap-1">
             <div class="flex items-center justify-between text-xs font-medium opacity-90">
-                <span class="truncate pr-2 text-[13px]">
+                <span class="truncate text-[13px] leading-tight">
                     {{ file.name || 'Voice message' }}
                 </span>
             </div>
@@ -219,23 +217,22 @@ onBeforeUnmount(() => {
             <div ref="barsEl" role="slider" tabindex="0" aria-label="Audio playback position"
                 aria-orientation="horizontal" :aria-valuenow="Math.round(progress * 100)" :aria-valuemin="0"
                 :aria-valuemax="100" :aria-valuetext="`${label} of ${totalDurationLabel}`"
-                class="relative flex h-7 w-full cursor-pointer items-center gap-[2px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                class="relative flex h-6 w-full cursor-pointer items-center gap-[2px] rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 @click="onSeek" @keydown="onSeekKeydown">
                 <span v-for="(height, index) in bars" :key="index"
                     class="w-full flex-1 rounded-full transition-colors duration-100" :class="index / barCount < progress
-                            ? isSent
-                                ? 'bg-white'
-                                : 'bg-blue-600 dark:bg-blue-400'
-                            : isSent
-                                ? 'bg-white/40'
-                                : 'bg-gray-300 dark:bg-gray-600'
+                        ? isSent
+                            ? 'bg-white'
+                            : 'bg-blue-600 dark:bg-blue-400'
+                        : isSent
+                            ? 'bg-white/40'
+                            : 'bg-gray-300 dark:bg-gray-600'
                         " :style="{ height: `${height}%` }" />
             </div>
         </div>
 
         <!-- Time -->
-        <div
-            class="flex min-w-[44px] shrink-0 flex-col items-end justify-center border-l border-current/15 pl-1 text-[11px] tabular-nums opacity-85">
+        <div class="flex min-w-[40px] shrink-0 flex-col items-end justify-center text-[11px] tabular-nums opacity-85">
             <span class="font-semibold">{{ label }}</span>
             <span class="text-[9px] opacity-75">
                 / {{ totalDurationLabel }}
