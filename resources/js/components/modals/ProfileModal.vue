@@ -53,6 +53,7 @@ import ProfileImageGallery from '@/components/modals/ProfileImageGallery.vue';
 import ImageCropModal, { isAnimatedImage } from '@/components/modals/ImageCropModal.vue';
 import { UPLOAD_LIMITS, checkFileSize } from '@/config/uploadLimits';
 import router from '@/router';
+import { formattedMonthName } from '@/helpers/time';
 
 type ProfileTab = 'info' | 'members' | ChatMediaType;
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{3,127}$/;
@@ -367,6 +368,36 @@ const mediaTabLabels: Record<ChatMediaType, string> = {
     'audio-messages': 'Voice Messages',
     'video-messages': 'Video Messages',
 };
+
+
+interface MediaGroup {
+    monthKey: string;
+    items: Attachment[];
+}
+
+const groupedChatMedia = computed<MediaGroup[]>(() => {
+    const groups: MediaGroup[] = [];
+    const map = new Map<string, Attachment[]>();
+
+    for (const item of chatMedia.value) {
+        const dateStr = getMediaDate(item);
+        const monthLabel = dateStr ? formattedMonthName(dateStr) : 'Other';
+
+        if (!map.has(monthLabel)) {
+            const arr: Attachment[] = [];
+            map.set(monthLabel, arr);
+            groups.push({ monthKey: monthLabel, items: arr });
+        }
+        map.get(monthLabel)!.push(item);
+    }
+
+    return groups;
+});
+
+// Helper to find the original index in `chatMedia.value` for correct gallery opening
+function getOriginalMediaIndex(item: Attachment): number {
+    return chatMedia.value.findIndex(m => getMediaKey(m, 0) === getMediaKey(item, 0));
+}
 
 function isMediaTab(tab: ProfileTab): tab is ChatMediaType {
     return MEDIA_TABS.includes(tab as ChatMediaType);
@@ -1427,94 +1458,108 @@ defineExpose({
 
                 <!-- ================= TAB: SHARED MEDIA ================= -->
                 <template v-else-if="isMediaTab(activeTab)">
-                    <div class="space-y-3">
+                    <div class="space-y-4">
                         <p v-if="chatMediaError" class="py-2 text-sm text-center text-red-400">{{ chatMediaError }}</p>
                         <p v-if="chatMediaLoading && !chatMedia.length" class="py-8 text-sm text-center text-gray-500">
                             Loading…</p>
-                        <p v-else-if="!chatMedia.length && !chatMediaLoading && !chatMediaError"
+                        <p v-if="!chatMedia.length && !chatMediaLoading && !chatMediaError"
                             class="py-8 text-sm text-center text-gray-500">No {{ activeMediaLabel.toLowerCase() }}
                             shared yet.</p>
 
-                        <div v-if="['photos', 'videos', 'video-messages'].includes(activeTab) && chatMedia.length"
-                            class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                            <button v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)" type="button"
-                                class="group relative aspect-square min-w-0 overflow-hidden rounded-lg bg-gray-100 text-left dark:bg-gray-800"
-                                :aria-label="`Open ${getMediaName(item)}`" :disabled="!getMediaUrl(item)"
-                                @click="openChatMediaGallery(index)">
-                                <img v-if="getMediaThumbnailUrl(item)" :src="getMediaThumbnailUrl(item)!"
-                                    :alt="getMediaName(item)" loading="lazy" decoding="async"
-                                    class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
-                                <div v-else class="flex h-full w-full items-center justify-center text-gray-400">
-                                    <PhotoIcon v-if="activeTab === 'photos'" class="size-8" />
-                                    <VideoIcon v-else class="size-8" />
-                                </div>
-                                <span v-if="activeTab !== 'photos'"
-                                    class="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
-                                    <span
-                                        class="grid size-9 place-items-center rounded-full bg-black/55 backdrop-blur-sm">
-                                        <PlayIcon class="ml-0.5 size-4 fill-white" />
-                                    </span>
-                                </span>
-                                <span
-                                    class="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-2 pb-1 pt-4 text-left text-[10px] text-white">
-                                    {{ getMediaName(item) }}
-                                </span>
-                            </button>
-                        </div>
+                        <!-- Grouped by Month Loops -->
+                        <div v-for="group in groupedChatMedia" :key="group.monthKey" class="space-y-2">
+                            <h4
+                                class="z-10 py-1 text-xs font-semibold text-gray-500 bg-gray-50/80 dark:bg-gray-900/80 px-1">
+                                {{ group.monthKey }}
+                            </h4>
 
-                        <div v-if="['audios', 'audio-messages'].includes(activeTab) && chatMedia.length"
-                            class="space-y-2">
-                            <article v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
-                                class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800/70">
-                                <button type="button"
-                                    class="relative grid size-11 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-                                    :aria-label="isCurrentAudio(item) && audioStore.isPlaying ? 'Pause audio' : 'Play audio'"
-                                    :disabled="!getMediaUrl(item)" @click="playSharedAudio(item)">
-                                    <span v-if="isCurrentAudio(item) && audioStore.isLoading"
-                                        class="absolute inset-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                                    <PauseIcon v-if="isCurrentAudio(item) && audioStore.isPlaying"
-                                        class="size-4 fill-white" />
-                                    <PlayIcon v-else class="ml-0.5 size-4 fill-white" />
-                                </button>
-
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex min-w-0 items-center gap-2">
-                                        <p class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
-                                            {{ getMediaName(item) === 'Shared item' && activeTab === 'audio-messages' ?
-                                                'Voice message' : getMediaName(item) }}
-                                        </p>
-                                        <span v-if="isCurrentAudio(item)"
-                                            class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                            {{ audioStore.isPlaying ? 'Playing' : 'Selected' }}
+                            <!-- Grid view for photos, videos, video-messages -->
+                            <div v-if="['photos', 'videos', 'video-messages'].includes(activeTab)"
+                                class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                                <button v-for="(item, index) in group.items" :key="getMediaKey(item, index)"
+                                    type="button"
+                                    class="group relative aspect-square min-w-0 overflow-hidden rounded-lg bg-gray-100 text-left dark:bg-gray-800"
+                                    :aria-label="`Open ${getMediaName(item)}`" :disabled="!getMediaUrl(item)"
+                                    @click="openChatMediaGallery(getOriginalMediaIndex(item))">
+                                    <img v-if="getMediaThumbnailUrl(item)" :src="getMediaThumbnailUrl(item)!"
+                                        :alt="getMediaName(item)" loading="lazy" decoding="async"
+                                        class="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105" />
+                                    <div v-else class="flex h-full w-full items-center justify-center text-gray-400">
+                                        <PhotoIcon v-if="activeTab === 'photos'" class="size-8" />
+                                        <VideoIcon v-else class="size-8" />
+                                    </div>
+                                    <span v-if="activeTab !== 'photos'"
+                                        class="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+                                        <span
+                                            class="grid size-9 place-items-center rounded-full bg-black/55 backdrop-blur-sm">
+                                            <PlayIcon class="ml-0.5 size-4 fill-white" />
                                         </span>
-                                    </div>
-                                    <div
-                                        class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
-                                        <span v-if="getMediaDuration(item)">{{
-                                            formatMediaDuration(getMediaDuration(item)) }}</span>
-                                        <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item)) }}</span>
-                                        <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
-                                        }}</span>
-                                    </div>
-                                </div>
-                            </article>
-                        </div>
+                                    </span>
+                                    <span
+                                        class="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-2 pb-1 pt-4 text-left text-[10px] text-white">
+                                        {{ getMediaName(item) }}
+                                    </span>
+                                </button>
+                            </div>
 
-                        <div v-if="activeTab === 'files' && chatMedia.length" class="space-y-2">
-                            <a v-for="(item, index) in chatMedia" :key="getMediaKey(item, index)"
-                                :href="getMediaUrl(item) || undefined" target="_blank" rel="noopener noreferrer"
-                                class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/70 dark:hover:bg-gray-800">
-                                <span
-                                    class="grid size-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300">
-                                    <FileIcon class="size-5" />
-                                </span>
-                                <span class="min-w-0 flex-1">
-                                    <span class="block truncate text-sm font-medium text-gray-800 dark:text-gray-100">{{
-                                        getMediaName(item) }}</span>
-                                    <span class="mt-0.5 block text-[11px] text-gray-500">{{ getMediaSize(item) ?
-                                        formatMediaSize(getMediaSize(item)) : getMediaMime(item) }}</span>
-                                </span>
-                            </a>
+                            <!-- List view for audios / voice messages -->
+                            <div v-if="['audios', 'audio-messages'].includes(activeTab)" class="space-y-2">
+                                <article v-for="(item, index) in group.items" :key="getMediaKey(item, index)"
+                                    class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800/70">
+                                    <button type="button"
+                                        class="relative grid size-11 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                                        :aria-label="isCurrentAudio(item) && audioStore.isPlaying ? 'Pause audio' : 'Play audio'"
+                                        :disabled="!getMediaUrl(item)" @click="playSharedAudio(item)">
+                                        <span v-if="isCurrentAudio(item) && audioStore.isLoading"
+                                            class="absolute inset-0 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                        <PauseIcon v-if="isCurrentAudio(item) && audioStore.isPlaying"
+                                            class="size-4 fill-white" />
+                                        <PlayIcon v-else class="ml-0.5 size-4 fill-white" />
+                                    </button>
+
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex min-w-0 items-center gap-2">
+                                            <p class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                                {{ getMediaName(item) === 'Shared item' && activeTab ===
+                                                    'audio-messages' ?
+                                                'Voice message' : getMediaName(item) }}
+                                            </p>
+                                            <span v-if="isCurrentAudio(item)"
+                                                class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                                {{ audioStore.isPlaying ? 'Playing' : 'Selected' }}
+                                            </span>
+                                        </div>
+                                        <div
+                                            class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-500 dark:text-gray-400">
+                                            <span v-if="getMediaDuration(item)">{{
+                                                formatMediaDuration(getMediaDuration(item)) }}</span>
+                                            <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item))
+                                                }}</span>
+                                            <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
+                                                }}</span>
+                                        </div>
+                                    </div>
+                                </article>
+                            </div>
+
+                            <!-- List view for files -->
+                            <div v-if="activeTab === 'files'" class="space-y-2">
+                                <a v-for="(item, index) in group.items" :key="getMediaKey(item, index)"
+                                    :href="getMediaUrl(item) || undefined" target="_blank" rel="noopener noreferrer"
+                                    class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200/80 bg-white px-3 py-3 transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/70 dark:hover:bg-gray-800">
+                                    <span
+                                        class="grid size-10 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300">
+                                        <FileIcon class="size-5" />
+                                    </span>
+                                    <span class="min-w-0 flex-1">
+                                        <span
+                                            class="block truncate text-sm font-medium text-gray-800 dark:text-gray-100">{{
+                                            getMediaName(item) }}</span>
+                                        <span class="mt-0.5 block text-[11px] text-gray-500">{{ getMediaSize(item) ?
+                                            formatMediaSize(getMediaSize(item)) : getMediaMime(item) }}</span>
+                                    </span>
+                                </a>
+                            </div>
                         </div>
 
                         <p v-if="chatMediaLoading && chatMedia.length" class="py-2 text-xs text-center text-gray-500">

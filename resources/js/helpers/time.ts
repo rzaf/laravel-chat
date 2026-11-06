@@ -1,3 +1,4 @@
+// helpers/time.ts
 import { useDateFormat } from '@vueuse/core';
 import { useAppConfigStore } from '@/stores/appConfig';
 
@@ -15,10 +16,11 @@ function localDayNumber(date: Date): number {
 
 /**
  * Formats a timestamp supporting different locales and calendar systems.
- * @param timestamp - The date value to format
- * @param now - Current reference date
- * @param isMessageSeparator - Whether this is for a day grouping separator in chat
- * @param overrideLocale - Optional locale string (e.g., 'fa-IR-u-ca-persian') to manually override store activeLocale
+ * 
+ * @param timestamp The date value to format
+ * @param now Current reference date
+ * @param isMessageSeparator Whether this is for a day grouping separator in chat
+ * @param overrideLocale Optional locale string (e.g., 'fa-IR-u-ca-persian') to manually override store activeLocale
  */
 export function formattedTimestamp(
     timestamp: string | number | Date,
@@ -59,10 +61,6 @@ export function formattedTimestamp(
         return useDateFormat(inputDate, 'HH:mm').value;
     }
 
-    // if (daysAgo === 1) {
-    //     return 'Yesterday';
-    // }
-
     if (daysAgo > 0 && daysAgo < 7) {
         return new Intl.DateTimeFormat(activeLocale, { weekday: 'short' }).format(inputDate);
     }
@@ -71,5 +69,30 @@ export function formattedTimestamp(
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
+    }).format(inputDate);
+}
+
+/**
+ * Formats a timestamp into a Month and Year label (e.g., "January 2026") for media grouping.
+ */
+export function formattedMonthName(
+    timestamp: string | number | Date,
+    overrideLocale?: string
+): string {
+    const inputDate =
+        timestamp instanceof Date
+            ? new Date(timestamp.getTime())
+            : new Date(timestamp);
+
+    if (Number.isNaN(inputDate.getTime())) {
+        return '';
+    }
+
+    const appConfigStore = useAppConfigStore();
+    const activeLocale = overrideLocale || appConfigStore.activeLocale;
+
+    return new Intl.DateTimeFormat(activeLocale, {
+        month: 'long',
+        year: 'numeric',
     }).format(inputDate);
 }
