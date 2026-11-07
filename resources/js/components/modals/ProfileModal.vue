@@ -80,6 +80,9 @@ const uploadingPhoto = ref(false);
 
 /* ------------------------------------------------------- permissions & states */
 
+const profileLoading = ref(false);
+let profileRequestToken = 0;
+
 const isDirectChatSelf = computed(() => {
     if (!chat.value) return user.value?.username === auth.user?.username;
     if (chat.value.type === 'direct') {
@@ -848,8 +851,13 @@ const contactItem = computed(() => {
     return contactStore.contacts?.find((c) => c.user.username === username) || null;
 });
 
+
 async function open(slug: string, c: Chat | null): Promise<void> {
     if (!slug) return;
+
+    const requestToken = ++profileRequestToken;
+    const needsFetch = c == null || !(c.type === 'group' || c.type === 'channel');
+
     if (contactStore.contacts === null) {
         contactStore.loadContacts();
     }
@@ -858,6 +866,7 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     chat.value = c;
     user.value = null;
     chatSlug.value = slug;
+    profileLoading.value = needsFetch;
     editing.value = false;
     editingUser.value = false;
     members.value = [];
@@ -879,19 +888,37 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     memberDirection.value = 'asc';
 
     profileImageGallery.value?.resetPhotos(slug, !!c && c.type !== 'direct');
-    if (c == null || !(c.type === 'group' || c.type === 'channel')) {
-        const res = await getChatBySlug(slug);
-        chat.value = res.chat;
-        user.value = res.user;
-        if (chat.value == null) {
-            chat.value = { slug: user.value?.username ?? slug, type: 'direct' };
-        }
-    } else {
-        if (auth.user && c.type === 'direct' && c.slug === auth.user.username) {
-            user.value = { ...auth.user };
-        }
-    }
+
+    // Open immediately, without waiting for the API.
     modalOpen();
+
+    if (needsFetch) {
+        try {
+            const res = await getChatBySlug(slug);
+
+            // Ignore responses belonging to previously opened profiles.
+            if (requestToken !== profileRequestToken) return;
+
+            chat.value = res.chat;
+            user.value = res.user;
+
+            if (chat.value == null) {
+                chat.value = { slug: user.value?.username ?? slug, type: 'direct' };
+            }
+        } catch (error) {
+            if (requestToken !== profileRequestToken) return;
+            console.error('Failed to load profile', error);
+        } finally {
+            if (requestToken === profileRequestToken) {
+                profileLoading.value = false;
+            }
+        }
+    } else if (auth.user && c.type === 'direct' && c.slug === auth.user.username) {
+        user.value = { ...auth.user };
+    }
+
+    if (requestToken !== profileRequestToken) return;
+
     if (canSeeMembers.value) {
         void loadMembers(1);
     }
@@ -1033,14 +1060,19 @@ defineExpose({
             <div
                 class="flex flex-col items-center px-6 pt-8 pb-4 border-b border-gray-100 dark:border-gray-800 shrink-0">
                 <div class="relative">
-                    <button type="button" @click="handleAvatarClick"
+                    <div v-if="profileLoading"
+                        class="w-20 h-20 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse">
+                    </div>
+
+                    <button v-else type="button" @click="handleAvatarClick"
                         class="block rounded-full overflow-hidden focus:outline-none cursor-pointer"
                         aria-label="View profile photos">
-                        <Avatar class="w-20 h-20 pointer-events-none" :src="profilePhoto" />
+                        <Avatar class="w-20 h-20 pointer-events-none"
+                            :src="chat?.profile_photo || user?.profile_photo || auth.user?.profile_photo || '/storage/default-profile.png'" />
                     </button>
 
-                    <!-- Separate camera button badge to trigger profile image upload -->
-                    <button v-if="canManagePhotos" type="button" @click="triggerPhotoUpload" :disabled="uploadingPhoto"
+                    <button v-if="!profileLoading && canManagePhotos" type="button" @click="triggerPhotoUpload"
+                        :disabled="uploadingPhoto"
                         class="absolute bottom-0 right-0 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-md transition-colors cursor-pointer"
                         aria-label="Upload profile photo" title="Upload profile photo">
                         <CameraIcon class="size-4" />
@@ -1049,7 +1081,9 @@ defineExpose({
 
                 <p v-if="photoError" role="alert" class="mt-2 text-xs text-red-500">{{ photoError }}</p>
 
-                <h2 class="mt-3 text-lg font-semibold text-gray-800 dark:text-gray-200">
+                <div v-if="profileLoading" class="mt-3 h-5 w-32 rounded-md bg-gray-200 dark:bg-gray-700 animate-pulse">
+                </div>
+                <h2 v-else class="mt-3 text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {{ chat?.name || user?.name || auth.user?.name || '...' }}
                 </h2>
 
@@ -1069,7 +1103,7 @@ defineExpose({
                 </template>
 
                 <!-- Navigation Tabs -->
-                <div v-if="!isDirectChatSelf"
+                <div v-if="!profileLoading" v-show="!isDirectChatSelf"
                     class="flex gap-1 mt-4 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-full overflow-x-auto scrollable text-xs">
                     <button type="button"
                         class="flex-1 py-1.5 px-3 rounded-lg font-medium transition-colors cursor-pointer text-center whitespace-nowrap"
@@ -1089,8 +1123,27 @@ defineExpose({
             <!-- Tab Content -->
             <div class="flex-1 overflow-y-auto scrollable px-5 py-4"
                 :class="{ 'flex flex-col min-h-0 overflow-hidden p-0': activeTab === 'members' }">
+                <!-- Profile loading skeleton -->
+                <div v-if="profileLoading" class="space-y-4">
+                    <div class="h-3 w-24 rounded bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+
+                    <div class="overflow-hidden rounded-xl border border-black/5 dark:border-white/5">
+                        <div v-for="i in 3" :key="i"
+                            class="flex items-center gap-3 px-4 py-4 border-b border-black/5 dark:border-white/5 last:border-0">
+                            <div class="w-9 h-9 shrink-0 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                            <div class="flex-1 space-y-2">
+                                <div class="h-3 w-16 rounded bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                                <div class="h-3 w-3/4 rounded bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="h-3 w-32 rounded bg-gray-200 dark:bg-gray-700 animate-pulse mt-6"></div>
+                    <div class="h-16 rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse"></div>
+                </div>
+
                 <!-- ================= TAB: INFO ================= -->
-                <template v-if="activeTab === 'info'">
+                <template v-else-if="activeTab === 'info'">
                     <template v-if="chat?.type === 'direct' || (!chat && isDirectChatSelf)">
                         <section>
                             <div class="flex items-center justify-between px-1 mb-2">
@@ -1539,9 +1592,9 @@ defineExpose({
                                             <span v-if="getMediaDuration(item)">{{
                                                 formatMediaDuration(getMediaDuration(item)) }}</span>
                                             <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item))
-                                            }}</span>
+                                                }}</span>
                                             <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
-                                            }}</span>
+                                                }}</span>
                                         </div>
                                     </div>
                                 </article>
