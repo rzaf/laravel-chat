@@ -40,7 +40,6 @@ const emit = defineEmits<{
 /* ----------------------------------------------------------- grouping */
 
 const isFirstOfRun = computed(() => props.isFirst !== false);
-const isLastOfRun = computed(() => !props.isConsecutive);
 
 /* --------------------------------------------------------------- sender */
 
@@ -111,13 +110,7 @@ const formattedTime = useDateFormat(() => props.time, 'HH:mm');
 </script>
 
 <template>
-    <div class="chat group relative z-10 flex items-end gap-2 px-1 sm:px-2"
-        :class="[isSent ? 'flex-row-reverse' : 'flex-row', isLastOfRun ? 'mb-3' : 'mb-1']">
-        <!-- Avatar slot: only the LAST message of a run shows the picture; earlier ones keep the space -->
-        <div v-if="props.chatType!='channel'" class="flex items-end shrink-0 size-9">
-            <Avatar v-if="isLastOfRun" class="rounded-full size-9 shadow-md"
-                :src="senderProfile || '/storage/default-profile.png'" />
-        </div>
+    <div class="chat group relative z-10 flex items-end px-1 sm:px-2" :class="isSent ? 'justify-end' : 'justify-start'">
 
         <!-- Bubble -->
         <div class="relative min-w-[5.5rem] max-w-[calc(100%-3.5rem)] sm:max-w-[68%] rounded-[1.25rem] px-3.5 py-2 transition-shadow duration-200"

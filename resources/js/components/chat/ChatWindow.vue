@@ -153,7 +153,6 @@ const groups = computed(() => {
             !isDateSeparator(nextItem) &&
             nextItem.sender_id === item.sender_id
         );
-        
 
         currentGroup.messages.push({
             id: String(item.id),
@@ -165,12 +164,12 @@ const groups = computed(() => {
             forwardedFrom: item.forwarded_from,
             isSent: chatStore.currentChat?.type !== 'channel' && isMine(item),
             isFirst: chatStore.currentChat?.type !== 'channel' && isFirst,
-            isConsecutive:chatStore.currentChat?.type !== 'channel' && isConsecutive,
+            isConsecutive: chatStore.currentChat?.type !== 'channel' && isConsecutive,
             senderName: item.sender?.name,
             // own messages fall back to the logged-in user's picture
             senderProfile: item.sender?.profile_photo
                 ?? (isMine(item) ? (auth.user as { profile_photo?: string } | null)?.profile_photo : undefined),
-            senderSlug: item.sender?.username,
+            senderSlug: item.sender?.username ?? (isMine(item) ? (auth.user?.username ?? null) : undefined),
             senderId: item.sender_id,
             attachments: item.attachments,
             attachments_count: item.attachments_count,
@@ -178,6 +177,19 @@ const groups = computed(() => {
     });
     return out;
 });
+
+const messageRuns = computed(() => groups.value.map(group => {
+    const runs: any[] = [];
+    group.messages.forEach(row => {
+        const last = runs[runs.length - 1];
+        if (last && last.senderId === row.senderId && last.isSent === row.isSent) {
+            last.messages.push(row);
+        } else {
+            runs.push({ key: row.key, senderId: row.senderId, senderProfile: row.senderProfile, senderSlug: row.senderSlug, isSent: row.isSent, messages: [row] });
+        }
+    });
+    return { ...group, runs };
+}));
 
 const replyPreviewAuthor = computed(() => {
     const m = replyingToMessage.value;
@@ -599,27 +611,38 @@ onBeforeUnmount(cancelRead);
 
                 <!-- Message timeline -->
                 <div v-else ref="listRef" role="log" aria-live="polite"
-                    class="flex-1 w-full min-h-0 px-2 pt-3 pb-3 overflow-y-auto sm:px-5 scrollable "
+                    class="flex-1 w-full min-h-0 px-2 pt-3 pb-3 overflow-y-auto sm:px-5 scrollable"
                     @scroll="handleScroll">
-                    <section v-for="group in groups" :key="group.key">
+                    <section v-for="group in messageRuns" :key="group.key">
                         <div v-if="group.label" class="sticky z-40 w-fit mx-auto flex justify-center py-1.5 top-1">
                             <span dir="rtl"
-                                class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 dark:bg-gray-700/90 dark:text-gray-200">
-                                {{ group.label }}
-                            </span>
+                                class="px-3 py-1 text-xs font-medium text-gray-600 rounded-full shadow-sm bg-white/90 dark:bg-gray-700/90 dark:text-gray-200">{{
+                                    group.label }}</span>
                         </div>
-                        <MessageBubble v-for="row in group.messages" :key="row.key" :chat-type="chat.type"
-                            :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time"
-                            :updated-at="row.updatedAt" :is-sent="row.isSent" :is-first="row.isFirst"
-                            :is-consecutive="row.isConsecutive" :sender-name="row.senderName"
-                            :sender-profile="row.senderProfile" :sender-slug="row.senderSlug" :sender-id="row.senderId"
-                            :attachments="row.attachments" :replyToMessageId="messageOf(row)?.reply_to_id"
-                            :reply-to="messageOf(row)?.reply_to" :reply-author="replyAuthorOf(row)"
-                            :forwarded-from="messageOf(row)?.forwarded_from"
-                            :is-menu-open="activeMenuMessage?.key === row.key" @jump-to-reply="jumpToMessage"
-                            @open-menu="handleOpenMessageMenu(row, $event)" />
+                        <div v-for="run in group.runs" :key="run.key" class="flex items-end mb-3"
+                            :class="run.isSent ? 'flex-row-reverse' : 'flex-row'">
+                            <div v-if="chat.type !== 'channel'" class="sticky bottom-0 self-end shrink-0 size-9">
+                                <Avatar class="rounded-full size-9 shadow-md"
+                                    :src="run.senderProfile || '/storage/default-profile.png'"
+                                    :asdf="run.senderId"
+                                    @click="emit('openChatProfile', chatStore.chatList?.find(c => c.direct_user_id === run.senderId) ?? <Chat>{ slug: run.senderSlug })" />
+                            </div>
+                            <div class="flex flex-col flex-1 min-w-0 gap-1">
+                                <MessageBubble v-for="row in run.messages" :key="row.key" :chat-type="chat.type"
+                                    :data-message-id="row.id" :message="row.text" :type="row.type" :time="row.time"
+                                    :updated-at="row.updatedAt" :is-sent="row.isSent" :is-first="row.isFirst"
+                                    :is-consecutive="row.isConsecutive" :sender-name="row.senderName"
+                                    :sender-profile="row.senderProfile" :sender-slug="row.senderSlug"
+                                    :sender-id="row.senderId" :attachments="row.attachments"
+                                    :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to"
+                                    :reply-author="replyAuthorOf(row)" :forwarded-from="messageOf(row)?.forwarded_from"
+                                    :is-menu-open="activeMenuMessage?.key === row.key" @jump-to-reply="jumpToMessage"
+                                    @open-menu="handleOpenMessageMenu(row, $event)" />
+                            </div>
+                        </div>
                     </section>
                 </div>
+
             </div>
         </Transition>
 
