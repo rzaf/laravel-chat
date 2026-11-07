@@ -92,6 +92,9 @@ const {
 const chatType = computed<ChatType>(() => props.chat.type ?? 'direct');
 /** `false` while previewing a public group / channel that the user hasn't joined. */
 const isMember = computed(() => props.chat.is_member !== false);
+const canDeleteMessage = computed(() => isMember.value === true
+    && (props.chat.type != 'direct' ? (props.chat.my_role == 'owner' || props.chat.my_role == 'admin' || activeMenuMessage?.value?.isSent) : true)
+);
 const canJoin = computed(() => !isMember.value);
 /** Members only; groups may be read-only, channels only let admins post (backend computes `can_send`). */
 const canSend = computed(() => isMember.value && (props.chat.can_send ?? true));
@@ -623,8 +626,7 @@ onBeforeUnmount(cancelRead);
                             :class="run.isSent ? 'flex-row-reverse' : 'flex-row'">
                             <div v-if="chat.type !== 'channel'" class="sticky bottom-0 self-end shrink-0 size-9">
                                 <Avatar class="rounded-full size-9 shadow-md"
-                                    :src="run.senderProfile || '/storage/default-profile.png'"
-                                    :asdf="run.senderId"
+                                    :src="run.senderProfile || '/storage/default-profile.png'" :asdf="run.senderId"
                                     @click="emit('openChatProfile', chatStore.chatList?.find(c => c.direct_user_id === run.senderId) ?? <Chat>{ slug: run.senderSlug })" />
                             </div>
                             <div class="flex flex-col flex-1 min-w-0 gap-1">
@@ -759,11 +761,11 @@ onBeforeUnmount(cancelRead);
                         <span>Select</span>
                     </button>
                 </li>
-                <div v-if="isMember" class="my-1 border-t border-gray-100 dark:border-gray-600" />
-                <li v-if="isMember">
+                <div v-if="canDeleteMessage" class="my-1 border-t border-gray-100 dark:border-gray-600" />
+                <li v-if="canDeleteMessage">
                     <button type="button"
                         class="flex items-center w-full gap-2 px-2 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors cursor-pointer"
-                        @click="handleMenuAction('delete')">
+                        @click="handleMenuAction('delete', props.chat.type === 'direct')">
                         <TrashIcon class="size-4 text-red-500 shrink-0" />
                         <span>Delete</span>
                     </button>

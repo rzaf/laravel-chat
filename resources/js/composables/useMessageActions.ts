@@ -84,13 +84,13 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
      * Ask for confirmation, then delete. Resolves `false` when the user
      * cancelled (the menu is then left as-is).
      */
-    async function confirmAndDelete(msg: MessageRow): Promise<boolean> {
+    async function confirmAndDelete(msg: MessageRow, showDeleteForEveryone: boolean = true): Promise<boolean> {
         const res = await confirm({
             title: 'Delete Message',
             message: `Are you sure to delete the message ?`,
             confirmText: 'Delete',
             variant: 'danger',
-            checkboxLabel: 'Delete for everyone',
+            checkboxLabel: showDeleteForEveryone ? 'Delete for everyone' : undefined,
         });
 
         const confirmed = typeof res === 'boolean' ? res : res.confirmed;
@@ -99,7 +99,7 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
         if (!confirmed || !msg.id) return false;
 
         try {
-            await removeMessage(msg.id, deleteForEveryone);
+            await removeMessage(msg.id, showDeleteForEveryone ? deleteForEveryone : true);
             if (replyingToMessage.value && sameId(replyingToMessage.value.id, msg.id)) {
                 cancelReply();
             }
@@ -112,7 +112,7 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
         return true;
     }
 
-    async function handleMenuAction(action: MenuAction): Promise<void> {
+    async function handleMenuAction(action: MenuAction, showDeleteForEveryone: boolean = true): Promise<void> {
         const msg = activeMenuMessage.value;
         if (!msg) return;
 
@@ -135,7 +135,7 @@ export function useMessageActions({ draft, findMessage, removeMessage, openForwa
                 console.log('select message:', msg);
                 break;
             case 'delete':
-                if (!(await confirmAndDelete(msg))) return;
+                if (!(await confirmAndDelete(msg, showDeleteForEveryone))) return;
                 break;
         }
         handleCloseMenu();

@@ -546,6 +546,9 @@ class MessageController extends Controller
             ], 200);
         }
 
+        if ($message->chat->type != 'direct') {
+            return response()->json(['message' => 'You cant delete channel or group messages just for yourself'], 403);
+        }
         // ==========================================
         // SCENARIO B: DELETE JUST FOR ME
         // ==========================================
