@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 
-defineProps<{
+const props = defineProps<{
     src?: string;
 }>();
 
 const loaded = ref(false);
+
+watch(() => props.src, () => {
+    loaded.value = false;
+});
+
 </script>
 
 <template>

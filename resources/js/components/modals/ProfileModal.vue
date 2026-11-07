@@ -897,11 +897,17 @@ async function open(slug: string, c: Chat | null): Promise<void> {
     }
 }
 
+const profilePhoto = computed(() =>
+    chat.value?.profile_photo ||
+    user.value?.profile_photo ||
+    (isDirectChatSelf.value ? auth.user?.profile_photo : undefined)
+);
+
 function handleAvatarClick() {
     const slug = chat.value?.type === 'direct' || !chat.value ? (user.value?.username || auth.user?.username || chatSlug.value) : (chat.value?.slug || chatSlug.value);
     profileImageGallery.value?.openForProfile(
         slug || '',
-        chat.value?.profile_photo || user.value?.profile_photo || auth.user?.profile_photo,
+        profilePhoto.value,
         !!chat.value && chat.value.type !== 'direct',
     );
 }
@@ -1030,8 +1036,7 @@ defineExpose({
                     <button type="button" @click="handleAvatarClick"
                         class="block rounded-full overflow-hidden focus:outline-none cursor-pointer"
                         aria-label="View profile photos">
-                        <Avatar class="w-20 h-20 pointer-events-none"
-                            :src="chat?.profile_photo || user?.profile_photo || auth.user?.profile_photo || '/storage/default-profile.png'" />
+                        <Avatar class="w-20 h-20 pointer-events-none" :src="profilePhoto" />
                     </button>
 
                     <!-- Separate camera button badge to trigger profile image upload -->
@@ -1522,7 +1527,7 @@ defineExpose({
                                             <p class="truncate text-sm font-semibold text-gray-800 dark:text-gray-100">
                                                 {{ getMediaName(item) === 'Shared item' && activeTab ===
                                                     'audio-messages' ?
-                                                'Voice message' : getMediaName(item) }}
+                                                    'Voice message' : getMediaName(item) }}
                                             </p>
                                             <span v-if="isCurrentAudio(item)"
                                                 class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
@@ -1534,9 +1539,9 @@ defineExpose({
                                             <span v-if="getMediaDuration(item)">{{
                                                 formatMediaDuration(getMediaDuration(item)) }}</span>
                                             <span v-if="getMediaSize(item)">{{ formatMediaSize(getMediaSize(item))
-                                                }}</span>
+                                            }}</span>
                                             <span v-if="getMediaDate(item)">{{ formatLastMessageDate(getMediaDate(item))
-                                                }}</span>
+                                            }}</span>
                                         </div>
                                     </div>
                                 </article>
@@ -1554,7 +1559,7 @@ defineExpose({
                                     <span class="min-w-0 flex-1">
                                         <span
                                             class="block truncate text-sm font-medium text-gray-800 dark:text-gray-100">{{
-                                            getMediaName(item) }}</span>
+                                                getMediaName(item) }}</span>
                                         <span class="mt-0.5 block text-[11px] text-gray-500">{{ getMediaSize(item) ?
                                             formatMediaSize(getMediaSize(item)) : getMediaMime(item) }}</span>
                                     </span>
