@@ -140,6 +140,7 @@ export default defineStore('chat', () => {
         const chat = findChat(newMessage.chat_id);
         if (chat) {
             chat.last_message = newMessage.content;
+            chat.latest_message_attachments_count = newMessage.attachments?.length;
             chat.last_message_type = newMessage.type || 'normal';
             chat.last_message_created_at = newMessage.created_at;
             chat.last_message_is_mine = true;
@@ -218,6 +219,8 @@ export default defineStore('chat', () => {
             chat.last_message_created_at = message.created_at;
             chat.last_message_is_mine = mine;
             chat.last_message_sender_name = message.sender?.name ?? chat.last_message_sender_name;
+            chat.last_message_type = message.type;
+            chat.latest_message_attachments_count = message.attachments_count ?? message.attachments.length;
             // Count it; the open window marks it read once it's actually visible.
             // (Group/channel broadcasts are echoed back to the sender — that's not "unseen".)
             if (!mine) {

@@ -272,12 +272,10 @@ async function goToBottom(): Promise<void> {
 /** Reflect a just-sent message in the chat list preview. */
 function updateLastMessage(chatId: number | null | undefined, sent: Message, fallbackContent = ''): void {
     if (chatId == null) return;
-    chatStore.setLastMessage({
-        chat_id: chatId,
-        content: sent.content || fallbackContent,
-        type: sent.type || 'normal',
-        created_at: sent.created_at,
-    });
+    sent.chat_id = chatId; 
+    sent.content = sent.content || fallbackContent;
+    sent.type = sent.type || 'normal'; 
+    chatStore.setLastMessage(sent);
 }
 
 async function handleSend(): Promise<void> {
