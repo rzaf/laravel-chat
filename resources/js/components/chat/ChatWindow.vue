@@ -171,7 +171,8 @@ const groups = computed(() => {
             senderName: item.sender?.name,
             // own messages fall back to the logged-in user's picture
             senderProfile: item.sender?.profile_photo
-                ?? (isMine(item) ? (auth.user as { profile_photo?: string } | null)?.profile_photo : undefined),
+                ?? (isMine(item) ? (auth.user as { profile_photo?: string } | null)?.profile_photo : null)
+                ?? (chatStore.currentChat?.type=='direct' ? (chatStore.currentChat?.profile_photo) : undefined),
             senderSlug: item.sender?.username ?? (isMine(item) ? (auth.user?.username ?? null) : undefined),
             senderId: item.sender_id,
             attachments: item.attachments,
@@ -602,7 +603,7 @@ onBeforeUnmount(cancelRead);
                 <!-- Empty conversation -->
                 <div v-else-if="isChatEmpty === true || userExists === false"
                     class="flex flex-col items-center justify-center flex-1 gap-2 px-6 text-center">
-                    <Avatar class="mb-3 shadow-xl size-24 ring-4 ring-white dark:ring-gray-800"
+                    <Avatar class="mb-3 shadow-xl size-24"
                         :src="chat.profile_photo || '/storage/default-profile.png'" />
                     <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
                         {{ emptyTitle }}
