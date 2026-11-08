@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { Attachment } from '@/types';
-import { useAudioStore } from '@/stores/audio';
+import { useAudioStore, MAX_PEAKS_DURATION } from '@/stores/audio';
 import { loadPeaks, getCachedPeaks, fallbackPeaks, resamplePeaks } from '@/helpers/waveformPeaks';
 import PlayIcon from '@/assets/svgs/Play.svg';
 import PauseIcon from '@/assets/svgs/Pause.svg';
@@ -24,6 +24,12 @@ const peaks = ref<number[]>(getCachedPeaks(props.file.id) ?? fallbackPeaks(props
 let ro: ResizeObserver | null = null;
 let io: IntersectionObserver | null = null;
 let disposed = false;
+
+// Cover art (album art). If the signed URL expired / fails, silently fall back to the plain play button.
+const coverFailed = ref(false);
+const coverUrl = computed(() =>
+    !coverFailed.value && props.file.thumbnail_url ? props.file.thumbnail_url : null,
+);
 
 const isCurrent = computed(() => audio.currentAudio?.id === props.file.id);
 const isPlaying = computed(() => isCurrent.value && audio.isPlaying);
@@ -141,7 +147,12 @@ onMounted(() => {
         ro.observe(barsEl.value);
     }
 
-    if (getCachedPeaks(props.file.id) || !root.value) return;
+    // skip the (expensive) waveform decode for long tracks, the fallback bars are used instead
+    if (
+        getCachedPeaks(props.file.id) ||
+        !root.value ||
+        (props.file.duration ?? 0) > MAX_PEAKS_DURATION
+    ) return;
 
     if (typeof IntersectionObserver === 'undefined') {
         loadPeaks(props.file.id, props.url || props.file.url)
@@ -182,28 +193,35 @@ onBeforeUnmount(() => {
     <!-- Borderless on purpose: it already lives inside a message bubble -->
     <div ref="root" class="flex items-center w-72 max-w-full gap-3 py-0.5 pr-1 sm:w-80"
         :class="isSent ? 'text-white' : 'text-gray-800 dark:text-gray-100'">
-        <!-- Play / Pause -->
-        <button type="button" @click.stop="onPlay" :aria-label="isLoading
-            ? 'Loading audio'
-            : isPlaying
-                ? 'Pause'
-                : 'Play'
-            " :aria-busy="isLoading"
-            class="relative grid size-10 shrink-0 cursor-pointer place-items-center rounded-full shadow-md transition active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-            :class="isSent
-                ? 'bg-white text-blue-600 hover:bg-blue-50'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-                ">
-            <PauseIcon v-if="isPlaying" class="size-5 fill-current" />
+        <!-- Cover art (optional) + Play / Pause -->
+        <div class="relative shrink-0 aspect-square overflow-hidden rounded-full"
+            :class="coverUrl ? 'size-12' : 'size-10'">
+            <img v-if="coverUrl" :src="coverUrl" alt="" draggable="false" @error="coverFailed = true"
+                class="absolute inset-0 size-full object-cover object-center" />
+            <button type="button" @click.stop="onPlay" :aria-label="isLoading
+                ? 'Loading audio'
+                : isPlaying
+                    ? 'Pause'
+                    : 'Play'
+                " :aria-busy="isLoading"
+                class="absolute inset-0 grid size-full cursor-pointer place-items-center transition active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                :class="coverUrl
+                    ? 'rounded-full bg-black/35 text-white hover:bg-black/50'
+                    : isSent
+                        ? 'rounded-full bg-white text-blue-600 shadow-md hover:bg-blue-50'
+                        : 'rounded-full bg-blue-600 text-white shadow-md hover:bg-blue-700'
+                    ">
+                <PauseIcon v-if="isPlaying" class="size-5 fill-current" />
 
-            <PlayIcon v-else class="ml-0.5 size-5 fill-current" />
+                <PlayIcon v-else class="ml-0.5 size-5 fill-current" />
 
-            <span v-if="isLoading" aria-hidden="true" class="absolute inset-0 animate-spin rounded-full border-2"
-                :class="isSent
-                    ? 'border-blue-600/25 border-t-blue-600'
-                    : 'border-white/25 border-t-white'
-                    " />
-        </button>
+                <span v-if="isLoading" aria-hidden="true"
+                    class="absolute inset-0 animate-spin rounded-[inherit] border-2" :class="coverUrl || !isSent
+                        ? 'border-white/25 border-t-white'
+                        : 'border-blue-600/25 border-t-blue-600'
+                        " />
+            </button>
+        </div>
 
         <!-- Waveform & Track Info -->
         <div class="flex min-w-0 flex-1 flex-col gap-1">

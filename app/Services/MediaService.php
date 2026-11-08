@@ -7,15 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Intervention\Image\Format;
 use Intervention\Image\ImageManager;
 use Intervention\Image\Drivers\Imagick\Driver;
-use Intervention\Image\Format;
-
 use kornrunner\Blurhash\Blurhash;
-
 
 class MediaService
 {
+    public function __construct(private MediaProbeService $probe) {}
+
     public function upload(
         Model $model,
         UploadedFile $file,
@@ -32,6 +32,7 @@ class MediaService
         $metaData = [];
         $width = null;
         $height = null;
+        $duration = null;
         $mimeType = $file->getClientMimeType();
         $thumbPath = null;
         $blurhash = null;
@@ -43,38 +44,41 @@ class MediaService
             $height = $image->height();
             $metaData = $image->exif();
 
-            // creating the blurhash:// Creating the blurhash
-            $blurImage = clone $image;
-            $maxSize = 32;
-            $aspectRatio = $image->width() / $image->height();
-            $blurWidth = $aspectRatio >= 1 ? $maxSize : max(1, (int) round($maxSize * $aspectRatio));
-            $blurHeight = $aspectRatio >= 1 ? max(1, (int) round($maxSize / $aspectRatio)) : $maxSize;
+            $blurhash = $this->makeBlurhash($image);
 
-            $blurImage->resize($blurWidth, $blurHeight);
-
-            $imagick = $blurImage->core()->native();
-            $imagick->setImageColorspace(\Imagick::COLORSPACE_RGB);
-            $pixelData = $imagick->exportImagePixels(0, 0, $blurWidth, $blurHeight, 'RGB', \Imagick::PIXEL_CHAR);
-
-            $pixels = [];
-            $index = 0;
-            for ($y = 0; $y < $blurHeight; $y++) {
-                $row = [];
-                for ($x = 0; $x < $blurWidth; $x++) {
-                    $row[] = [$pixelData[$index++], $pixelData[$index++], $pixelData[$index++]];
-                }
-                $pixels[] = $row;
-            }
-
-            $blurhash = Blurhash::encode($pixels, 4, 3);
-
-
-            // $image->cover(100, 100, 'center');
             $image->scaleDown(width: 100);
             $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
             $thumbPath = $directory . '/' . $uuidName . '_thumb';
-            // $encoded->save(Storage::disk($disk)->path('') . $thumbPath);
             Storage::disk($disk)->put($thumbPath, $encoded->toString());
+        } elseif (str_starts_with($mimeType, 'video/') || str_starts_with($mimeType, 'audio/')) {
+            // Trust ffprobe, not the client-supplied mime type
+            $info = $this->probe->probe($file->path());
+            $duration = $info['duration'];
+
+            $thumbBytes = null;
+            if ($info['kind'] === 'video') {
+                $width = $info['width'];
+                $height = $info['height'];
+                $thumbBytes = $this->probe->extractFrame($file->path(), $duration);
+            } elseif ($info['kind'] === 'audio' && $info['has_cover']) {
+                // embedded album art becomes the audio's thumbnail
+                $thumbBytes = $this->probe->extractAudioCoverArt($file->path());
+            }
+
+            if (!empty($thumbBytes)) {
+                try {
+                    $blurhash = $this->makeBlurhash(
+                        ImageManager::usingDriver(Driver::class)->decodeBinary($thumbBytes)
+                    );
+                    $thumbPath = $directory . '/' . $uuidName . '_thumb';
+                    Storage::disk($disk)->put($thumbPath, $thumbBytes);
+                } catch (\Throwable $e) {
+                    // a bad cover/frame must never fail the upload
+                    report($e);
+                    $thumbPath = null;
+                    $blurhash = null;
+                }
+            }
         }
 
         $checksum = hash_file('sha256', $file->getRealPath());
@@ -89,6 +93,7 @@ class MediaService
 
             'width' => $width,
             'height' => $height,
+            'duration' => $duration, // seconds, e.g. 12.345 (video + audio)
             'checksum' => $checksum,
             'metadata' => $metaData,
             'thumb_path' => $thumbPath,
@@ -108,10 +113,39 @@ class MediaService
             'uploaded_by' => auth()->id() ?? $sourceMedia->uploaded_by,
             'width' => $sourceMedia->width,
             'height' => $sourceMedia->height,
+            'duration' => $sourceMedia->duration,
             'checksum' => $sourceMedia->checksum,
             'metadata' => $sourceMedia->metadata,
             'thumb_path' => $sourceMedia->thumb_path, // Points to the same thumbnail path
             'blurhash' => $sourceMedia->blurhash,
         ]);
+    }
+
+    /** Blurhash of any Intervention image (works on a clone, the original is untouched). */
+    private function makeBlurhash($image): string
+    {
+        $blurImage = clone $image;
+        $maxSize = 32;
+        $aspectRatio = $image->width() / $image->height();
+        $blurWidth = $aspectRatio >= 1 ? $maxSize : max(1, (int) round($maxSize * $aspectRatio));
+        $blurHeight = $aspectRatio >= 1 ? max(1, (int) round($maxSize / $aspectRatio)) : $maxSize;
+
+        $blurImage->resize($blurWidth, $blurHeight);
+
+        $imagick = $blurImage->core()->native();
+        $imagick->setImageColorspace(\Imagick::COLORSPACE_RGB);
+        $pixelData = $imagick->exportImagePixels(0, 0, $blurWidth, $blurHeight, 'RGB', \Imagick::PIXEL_CHAR);
+
+        $pixels = [];
+        $index = 0;
+        for ($y = 0; $y < $blurHeight; $y++) {
+            $row = [];
+            for ($x = 0; $x < $blurWidth; $x++) {
+                $row[] = [$pixelData[$index++], $pixelData[$index++], $pixelData[$index++]];
+            }
+            $pixels[] = $row;
+        }
+
+        return Blurhash::encode($pixels, 4, 3);
     }
 }

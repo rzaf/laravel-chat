@@ -27,11 +27,12 @@ return new class extends Migration
 
             $table->unsignedInteger('width')->nullable();
             $table->unsignedInteger('height')->nullable();
+            $table->decimal('duration', 10, 3)->nullable();
             $table->string('checksum', 64)->nullable();
             $table->string('blurhash', 30)->nullable();
             $table->string('thumb_path')->nullable(); // thumbnail path
 
-            // Media properties (dimensions, audio duration, thumbnails)
+            // Media properties
             $table->json('custom_properties')->nullable();
             $table->json('metadata')->nullable();
 

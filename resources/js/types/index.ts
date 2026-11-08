@@ -93,6 +93,7 @@ export interface Attachment {
     expire: string;
     width?: number;
     height?: number;
+    duration?: number;
     created_at: string;
 }
 

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\StreamsWithRanges;
 use App\Http\Resources\MediaResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\URL;
  */
 class MediaController extends Controller
 {
-
+    use StreamsWithRanges;
 
     /**
      * Public media.
@@ -42,9 +43,9 @@ class MediaController extends Controller
         if ($media->model_type === User::class) {
             // todo: add private user profile setting
         }
-
         $mediaPath = $request->boolean('thumbnail', false) ? $media->thumb_path : $media->path;
-        return Storage::disk($media->disk)->response($mediaPath);
+        // return Storage::disk($media->disk)->response($mediaPath);
+        return $this->rangedResponse($request, Storage::disk($media->disk)->path($mediaPath), $media->mime_type);
     }
 
     /**
@@ -57,13 +58,17 @@ class MediaController extends Controller
         $media = Media::findOrFail($id);
         // return Storage::disk($media->disk)->response($media->path);
         $mediaPath = $request->boolean('thumbnail', false) ? $media->thumb_path : $media->path;
+        if ($mediaPath == null) {
+            abort(500, 'file not found !');
+        }
 
-        $path = Storage::disk($media->disk)->path($mediaPath);        
+        // $path = Storage::disk($media->disk)->path($mediaPath);
         // This helper handles 206 Partial Content and Range headers out of the box
-        return response()->file($path, [
-            'Accept-Ranges' => 'bytes',
-            'Content-Type' => $media->mime_type,
-        ]);
+        // return response()->file($path, [
+        //     'Accept-Ranges' => 'bytes',
+        //     'Content-Type' => $media->mime_type,
+        // ]);
+        return $this->rangedResponse($request, Storage::disk($media->disk)->path($mediaPath), $media->mime_type);
     }
 
     /**

@@ -16,6 +16,11 @@ RUN apt-get update && apt-get install -y libmagickwand-dev \
     && docker-php-ext-enable imagick \
     && rm -rf /var/lib/apt/lists/*
 
+# Separate block for FFmpeg and FFprobe
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN cat > /usr/local/etc/php/conf.d/uploads.ini <<'EOF'
 upload_max_filesize = 100M
 post_max_size = 110M

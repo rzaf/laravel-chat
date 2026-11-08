@@ -3,6 +3,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import WaveSurfer from 'wavesurfer.js';
 import { useAudioStore } from '@/stores/audio';
+import { createOverlayId, getOverlayZIndex, registerOverlay, unregisterOverlay } from '@/composables/useOverlayManager';
+import { regenerateMediaUrl } from '@/api';
 
 import PlayIcon from '@/assets/svgs/Play.svg';
 import PauseIcon from '@/assets/svgs/Pause.svg';
@@ -26,6 +28,71 @@ let themeObserver: MutationObserver | null = null;
 // -----------------------------------------------------------------------------
 // Computed state
 // -----------------------------------------------------------------------------
+async function fetchCover(url: string): Promise<string> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+}
+
+const coverUrl = ref<string | null>(null);
+
+watch(
+    () => audio.currentAudio?.thumbnail_url,
+    async (url, _old, onCleanup) => {
+        let stale = false;
+        onCleanup(() => { stale = true; });
+
+        if (coverUrl.value) URL.revokeObjectURL(coverUrl.value);
+        coverUrl.value = null;
+        if (!url) return;
+
+        let objectUrl: string | null = null;
+        try {
+            objectUrl = await fetchCover(url);
+        } catch {
+            // most likely the signed URL expired: ask for a fresh one and retry once
+            try {
+                const id = audio.currentAudio?.id;
+                if (id != null) {
+                    const res = await regenerateMediaUrl(String(id));
+                    const fresh = res.data?.thumbnail_url;
+                    if (fresh) objectUrl = await fetchCover(fresh);
+                }
+            } catch (e) {
+                console.error('Failed to refresh cover URL', e);
+            }
+        }
+
+        if (!objectUrl) return;
+        if (stale) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+        }
+        coverUrl.value = objectUrl;
+    },
+    { immediate: true },
+);
+
+// Bigger cover preview (registered in the overlay manager so Escape closes it)
+const coverPreviewId = createOverlayId('audio-cover');
+const showCoverPreview = ref(false);
+const coverPreviewZ = computed(() => getOverlayZIndex(coverPreviewId));
+
+function openCoverPreview() {
+    if (!coverUrl.value) return;
+    showCoverPreview.value = true;
+    registerOverlay(coverPreviewId, 'modal', closeCoverPreview);
+}
+
+function closeCoverPreview() {
+    showCoverPreview.value = false;
+    unregisterOverlay(coverPreviewId);
+}
+
+// cover disappeared (player stopped / next track has none / image failed): close the preview
+watch(coverUrl, (url) => {
+    if (!url && showCoverPreview.value) closeCoverPreview();
+});
 
 const title = computed(() => audio.currentAudio?.name || 'Voice message');
 
@@ -85,12 +152,12 @@ function isDark(): boolean {
 function palette() {
     return isDark()
         ? {
-            wave: 'rgba(148, 163, 184, 0.40)',
-            progress: '#60a5fa',
+            wave: '#7c8aa0',      // slate, readable on gray-800
+            progress: '#60a5fa',  // blue-400
         }
         : {
-            wave: 'rgba(100, 116, 139, 0.38)',
-            progress: '#2563eb',
+            wave: '#8391a7',      // slate, readable on white
+            progress: '#2563eb',  // blue-600
         };
 }
 
@@ -239,11 +306,11 @@ function handleWaveKeydown(event: KeyboardEvent) {
 // Volume controls
 // -----------------------------------------------------------------------------
 
-const volume = ref(1);
-const isMuted = ref(false);
+const volume = ref(audio.volume);
+const isMuted = ref(audio.volume === 0);
 const showVolumePopup = ref(false);
 
-let previousVolume = 1;
+let previousVolume = audio.volume || 1;
 
 function toggleVolumePopup() {
     showVolumePopup.value = !showVolumePopup.value;
@@ -314,12 +381,13 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+    if (coverUrl.value) URL.revokeObjectURL(coverUrl.value);
+    unregisterOverlay(coverPreviewId);
     document.removeEventListener('click', handleClickOutside);
     document.removeEventListener('keydown', handleDocumentKeydown);
 
     themeObserver?.disconnect();
     themeObserver = null;
-
     destroyWave();
 });
 </script>
@@ -337,6 +405,15 @@ onBeforeUnmount(() => {
                 <PauseIcon v-if="audio.isPlaying" class="size-4 fill-white" />
 
                 <PlayIcon v-else class="ml-0.5 size-4 fill-white" />
+            </button>
+
+            <!-- Cover art -->
+            <!-- whole cover visible (contain), empty space filled with a blurred copy of itself -->
+            <button v-if="coverUrl" type="button" @click="openCoverPreview" aria-label="Show cover art"
+                class="relative size-11 shrink-0 cursor-zoom-in overflow-hidden rounded-lg bg-gray-200 shadow-sm transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:bg-gray-700">
+                <img :src="coverUrl" alt="" aria-hidden="true" draggable="false"
+                    class="absolute inset-0 size-full scale-150 object-cover blur-md" />
+                <img :src="coverUrl" alt="" draggable="false" class="relative size-full object-contain" />
             </button>
 
             <!-- Title & Time -->
@@ -425,11 +502,43 @@ onBeforeUnmount(() => {
                     <CloseIcon class="size-4" />
                 </button>
             </div>
+
+            <!-- Enlarged cover -->
+            <Teleport to="body">
+                <Transition name="cover">
+                    <div v-if="showCoverPreview && coverUrl" role="dialog" aria-modal="true" aria-label="Cover art"
+                        class="fixed inset-0 flex items-center justify-center p-4 sm:p-8"
+                        :style="{ zIndex: coverPreviewZ }" @click.self="closeCoverPreview">
+                        <!-- blurred backdrop made from the cover itself -->
+                        <img :src="coverUrl" alt="" aria-hidden="true" draggable="false"
+                            class="pointer-events-none absolute inset-0 size-full scale-125 object-cover blur-3xl" />
+                        <div class="pointer-events-none absolute inset-0 bg-black/60" />
+
+                        <img :src="coverUrl" :alt="title" draggable="false"
+                            class="relative max-h-full max-w-full rounded-xl object-contain shadow-2xl" />
+
+                        <button type="button" @click="closeCoverPreview" aria-label="Close cover art"
+                            class="absolute right-4 top-4 grid size-10 cursor-pointer place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white">
+                            <CloseIcon class="size-5" />
+                        </button>
+                    </div>
+                </Transition>
+            </Teleport>
         </section>
     </Transition>
 </template>
 
 <style scoped>
+.cover-enter-active,
+.cover-leave-active {
+    transition: opacity 0.18s ease;
+}
+
+.cover-enter-from,
+.cover-leave-to {
+    opacity: 0;
+}
+
 .dock-enter-active,
 .dock-leave-active {
     transition:
@@ -458,6 +567,8 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
 
+    .cover-enter-active,
+    .cover-leave-active,
     .dock-enter-active,
     .dock-leave-active,
     .volume-enter-active,

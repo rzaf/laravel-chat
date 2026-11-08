@@ -108,7 +108,10 @@ function makeVideoThumb(file: Attachment, url: string = getActiveUrl(file), retr
 function singleImageStyle(file: Attachment) {
     if (isVideo(file.type) && (!file.width || !file.height)) {
         const d = videoDims.value[file.id];
-        return { width: '100%', height: '280px', aspectRatio: d ? `${d.w} / ${d.h}` : '16 / 9' }; // use fixed height for video because size is unknown
+        // Use database dimensions if present, otherwise fall back to measured/default ratio
+        const w = file.width || d?.w;
+        const h = file.height || d?.h;
+        return { width: '100%', height: '280px', aspectRatio: (w && h) ? `${w} / ${h}` : '16 / 9' }; // use fixed height for video because size is unknown
     }
     if (!file.width || !file.height) {
         return { width: '100%', maxWidth: '500px', aspectRatio: '1 / 1' };
@@ -324,8 +327,9 @@ function initPhotoSwipe() {
 
         if (file) {
             if (isVideo(file.type)) {
-                itemData.w = Math.max(300, window.innerWidth - 40);
-                itemData.h = Math.max(300, window.innerHeight - 40);
+                const d = videoDims.value[file.id];
+                itemData.w = file.width || d?.w || Math.max(300, window.innerWidth - 40);
+                itemData.h = file.height || d?.h || Math.max(300, window.innerHeight - 40);
                 itemData.type = 'video';
             } else {
                 itemData.w = file.width || 100;
@@ -567,7 +571,7 @@ function revealImage(fileId: number, event: Event) {
                     :style="singleImageStyle(file)" :ref="(el: any) => observeAttachment(el, file)"
                     @click.prevent="handleMediaClick(file, index)">
                     <template v-if="isVideo(file.type)">
-                        <img v-if="videoThumbs[file.id]" :src="videoThumbs[file.id]"
+                        <img v-if="file.thumbnail_url || videoThumbs[file.id]" :src="file.thumbnail_url || videoThumbs[file.id]"
                             class="w-full h-full object-cover hover:scale-105 transition-transform duration-200" />
                         <div v-else class="absolute inset-0 bg-gray-500 animate-pulse"></div>
                         <div
