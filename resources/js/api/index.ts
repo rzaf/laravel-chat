@@ -320,6 +320,18 @@ export async function updateMessage(messageId: string, newContent: string): Prom
     return data;
 }
 
+export async function addMessageReaction(messageId: number | string, reaction: string): Promise<Message> {
+    const { data } = await apiClient.post<{ data: Message }>(`/api/messages/${messageId}/reactions`, { reaction });
+    return data.data;
+}
+
+export async function removeMessageReaction(messageId: number | string, reaction: string): Promise<Message> {
+    const { data } = await apiClient.delete<{ data: Message }>(`/api/messages/${messageId}/reactions`, {
+        data: { reaction },
+    });
+    return data.data;
+}
+
 /* -------------------------------------------------------- contacts / users */
 
 export async function searchUsers(term: string, page = 1, notInContacts: boolean = true): Promise<Paginated<User>> {

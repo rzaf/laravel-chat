@@ -1068,7 +1068,7 @@ defineExpose({
                         class="block rounded-full overflow-hidden focus:outline-none cursor-pointer"
                         aria-label="View profile photos">
                         <Avatar class="w-20 h-20 pointer-events-none"
-                            :src="chat?.profile_photo || user?.profile_photo || auth.user?.profile_photo || '/storage/default-profile.png'" />
+                            :src="profilePhoto" />
                     </button>
 
                     <button v-if="!profileLoading && canManagePhotos" type="button" @click="triggerPhotoUpload"

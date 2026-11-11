@@ -115,6 +115,10 @@ export interface Message {
     reply_to?: Message;
     forwarded_from_message_id?: number;
     forwarded_from?: Chat;
+    reactions?: {
+        my_reaction: string | null;
+        counts: Record<string, number>;
+    };
 }
 
 /** A day divider injected between messages in the timeline. */

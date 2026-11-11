@@ -9,7 +9,7 @@ import { useMessageScroll } from '@/composables/useMessageScroll';
 import { useChatReadState } from '@/composables/useChatReadState';
 import { useMessageActions } from '@/composables/useMessageActions';
 import { hasOpenOverlay } from '@/composables/useOverlayManager';
-import { forwardMessage, joinChat, setChatMute } from '@/api/index.ts';
+import { addMessageReaction, removeMessageReaction, forwardMessage, joinChat, setChatMute } from '@/api/index.ts';
 import { isDateSeparator } from '@/types';
 import type { Chat, ChatType, Message, MessageGroup } from '@/types';
 import MessageBubble from '@/components/chat/MessageBubble.vue';
@@ -165,6 +165,7 @@ const groups = computed(() => {
             time: item.created_at,
             updatedAt: item.updated_at,
             forwardedFrom: item.forwarded_from,
+            reactions: item.reactions,
             isSent: chatStore.currentChat?.type !== 'channel' && isMine(item),
             isFirst: chatStore.currentChat?.type !== 'channel' && isFirst,
             isConsecutive: chatStore.currentChat?.type !== 'channel' && isConsecutive,
@@ -172,7 +173,7 @@ const groups = computed(() => {
             // own messages fall back to the logged-in user's picture
             senderProfile: item.sender?.profile_photo
                 ?? (isMine(item) ? (auth.user as { profile_photo?: string } | null)?.profile_photo : null)
-                ?? (chatStore.currentChat?.type=='direct' ? (chatStore.currentChat?.profile_photo) : undefined),
+                ?? (chatStore.currentChat?.type == 'direct' ? (chatStore.currentChat?.profile_photo) : undefined),
             senderSlug: item.sender?.username ?? (isMine(item) ? (auth.user?.username ?? null) : undefined),
             senderId: item.sender_id,
             attachments: item.attachments,
@@ -214,6 +215,24 @@ function replyAuthorOf(row: { id?: string }): string | null | undefined {
     if (!reply) return null;
     return authorLabel(messagesById.value.get(String(reply.id)) ?? reply);
 }
+
+
+
+
+const showAllEmojis = ref(false);
+
+const COMMON_EMOJIS = ['👍', '❤️', '😂', '🔥', '🥰', '👏', '😮', '🙏'];
+const EXTRA_EMOJIS = [
+    '🎉', '😍', '🤩', '🙌', '💯', '👀', '💀', '😭',
+    '😎', '🥳', '🤔', '💪', '✨', '🚀', '⭐', '❤️‍🔥',
+    '😘', '🤭', '🤫', '🤲', '😢', '💩',
+];
+
+const reactionList = computed(() => {
+    const available = showAllEmojis.value ? [...COMMON_EMOJIS, ...EXTRA_EMOJIS] : COMMON_EMOJIS;
+    const existing = Object.keys(activeMenuMessage.value?.reactions?.counts ?? {});
+    return [...new Set([...available, ...existing])];
+});
 
 /* ------------------------------------------------- opening / scrolling */
 
@@ -272,9 +291,9 @@ async function goToBottom(): Promise<void> {
 /** Reflect a just-sent message in the chat list preview. */
 function updateLastMessage(chatId: number | null | undefined, sent: Message, fallbackContent = ''): void {
     if (chatId == null) return;
-    sent.chat_id = chatId; 
+    sent.chat_id = chatId;
     sent.content = sent.content || fallbackContent;
-    sent.type = sent.type || 'normal'; 
+    sent.type = sent.type || 'normal';
     chatStore.setLastMessage(sent);
 }
 
@@ -378,6 +397,37 @@ function handleSendAudio(file: File, onResult: (sent: boolean) => void): Promise
 
 function handleSendVideo(file: File, onResult: (sent: boolean) => void): Promise<void> {
     return handleSendRecording(file, 'video', onResult);
+}
+
+const reactionBusy = ref(false);
+
+async function handleReaction(rowId: string | number | undefined, reaction: string): Promise<void> {
+    if (rowId == null || reactionBusy.value) return;
+
+    const cachedMessage = messagesById.value.get(String(rowId));
+    if (!cachedMessage) return;
+
+    reactionBusy.value = true;
+    try {
+        // Selecting your current reaction removes it; choosing another replaces it.
+        const updatedMessage = cachedMessage.reactions?.my_reaction === reaction
+            ? await removeMessageReaction(rowId, reaction)
+            : await addMessageReaction(rowId, reaction);
+
+        const currentMessage = messagesById.value.get(String(rowId));
+        if (currentMessage) {
+            currentMessage.reactions = updatedMessage.reactions;
+        }
+        // The context menu receives a lightweight timeline row, so keep that
+        // snapshot in sync too while the menu remains open.
+        if (activeMenuMessage.value && String(activeMenuMessage.value.id) === String(rowId)) {
+            activeMenuMessage.value.reactions = updatedMessage.reactions;
+        }
+    } catch (error) {
+        console.error('Failed to update reaction', error);
+    } finally {
+        reactionBusy.value = false;
+    }
 }
 
 /* ---------------------------------------------------------------- forward */
@@ -637,8 +687,10 @@ onBeforeUnmount(cancelRead);
                                     :sender-id="row.senderId" :attachments="row.attachments"
                                     :replyToMessageId="messageOf(row)?.reply_to_id" :reply-to="messageOf(row)?.reply_to"
                                     :reply-author="replyAuthorOf(row)" :forwarded-from="messageOf(row)?.forwarded_from"
+                                    :reactions="messageOf(row)?.reactions"
                                     :is-menu-open="activeMenuMessage?.key === row.key" @jump-to-reply="jumpToMessage"
-                                    @open-menu="handleOpenMessageMenu(row, $event)" />
+                                    @open-menu="handleOpenMessageMenu(row, $event)"
+                                    @react="handleReaction(messageOf(row)?.id, $event)" />
                             </div>
                         </div>
                     </section>
@@ -719,6 +771,47 @@ onBeforeUnmount(cancelRead);
 
         <!-- Shared Modern Context Menu -->
         <ContextMenu :is-open="isOpen" :x="x" :y="y" @close="handleCloseMenu">
+            <!-- Reaction picker and current totals -->
+            <div class="w-56 max-w-[calc(100vw-2rem)] px-2 pt-2 pb-2 border-b border-gray-100 dark:border-gray-700/60">
+                <div v-if="Object.keys(activeMenuMessage?.reactions?.counts ?? {}).length"
+                    class="flex flex-wrap gap-1 mb-2">
+                    <button v-for="(count, emoji) in activeMenuMessage?.reactions?.counts" :key="emoji" type="button"
+                        :disabled="reactionBusy"
+                        :title="`${count} reaction${count === 1 ? '' : 's'} · click to toggle yours`"
+                        class="inline-flex items-center gap-1 px-1.5 py-1 text-[11px] rounded-full transition-colors cursor-pointer disabled:opacity-50"
+                        :class="activeMenuMessage?.reactions?.my_reaction === emoji
+                            ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:ring-blue-500/40'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700'"
+                        @click="handleReaction(activeMenuMessage?.id, String(emoji))">
+                        <span class="text-[13px] leading-none">{{ emoji }}</span>
+                        <span class="font-medium tabular-nums">{{ count }}</span>
+                    </button>
+                </div>
+
+                <div class="flex items-center justify-between px-1 mb-1.5">
+                    <span class="text-[11px] font-semibold tracking-wide text-gray-500 uppercase dark:text-gray-400">
+                        React
+                    </span>
+                    <button type="button"
+                        class="text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                        @click.stop="showAllEmojis = !showAllEmojis">
+                        {{ showAllEmojis ? 'Less' : 'More' }}
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-6 gap-1">
+                    <button v-for="emoji in reactionList" :key="emoji" type="button" :disabled="reactionBusy"
+                        :aria-label="`React with ${emoji}`"
+                        :aria-pressed="activeMenuMessage?.reactions?.my_reaction === emoji"
+                        class="grid size-7 place-items-center text-base rounded-lg transition-colors cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40"
+                        :class="activeMenuMessage?.reactions?.my_reaction === emoji
+                            ? 'bg-blue-100 ring-1 ring-blue-300 dark:bg-blue-500/20 dark:ring-blue-500/50'
+                            : ''" @click="handleReaction(activeMenuMessage?.id, emoji); handleCloseMenu()">
+                        {{ emoji }}
+                    </button>
+                </div>
+            </div>
+
             <ul class="py-1 space-y-0.5 text-sm">
                 <li v-if="canSend">
                     <button type="button"
