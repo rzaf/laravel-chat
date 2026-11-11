@@ -1,11 +1,21 @@
 services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./public:/var/www/public:ro
+      - ./storage/app/public:/var/www/storage/app/public:ro
+      - ./nginx-default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - php
 
   php:
     user: "${UID:-1000}:${GID:-1000}"
     build:
       context: .
     environment:
-      - APP_ENV=${APP_ENV}
+      APP_ENV: ${APP_ENV}
     working_dir: /var/www
     volumes:
       - ./app:/var/www/app
@@ -23,10 +33,11 @@ services:
       - ./composer.json:/var/www/composer.json
       - ./composer.lock:/var/www/composer.lock
     ports:
-      - 8000:8000
+      # - 8000:8000
       - 8080:8080
     depends_on:
       - database
+      - redis
 
   node:
     user: "${UID:-1000}:${GID:-1000}"
