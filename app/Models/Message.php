@@ -47,4 +47,9 @@ class Message extends Model
     {
         return $this->belongsTo(Message::class, 'forwarded_from_message_id')->withTrashed();
     }
+
+    public function reactions()
+    {
+        return $this->hasMany(\App\Models\MessageReaction::class);
+    }
 }

@@ -14,12 +14,14 @@ class MessageResource extends JsonResource
                 $this->setRelation('replyTo', null);
             }
         }
+
+        $currentUserId = $request->user()?->id;
+
         return [
             'id' => $this->id,
             'content' => $this->content,
             'type' => $this->type,
             'sender_id' => $this->sender_id,
-            // Only present when the `sender` relation is loaded (groups / channels need the author).
             'sender' => $this->when(
                 $this->relationLoaded('sender'),
                 fn() => $this->sender ? new UserResource($this->sender) : null
@@ -41,14 +43,12 @@ class MessageResource extends JsonResource
                     $chat->direct_user_id = $sender->id;
 
                     if ($sender->relationLoaded('profilePhoto') && $sender->profilePhoto) {
-                        // Set 'profilePhoto' relation so ChatResource picks it up correctly
                         $chat->setRelation('profilePhoto', $sender->profilePhoto);
                     }
                 }
 
                 return new ChatResource($chat);
             }),
-
             'chat_id' => $this->chat_id,
             'chat' => new ChatResource(
                 $this->whenLoaded('chat')
@@ -56,11 +56,21 @@ class MessageResource extends JsonResource
             'attachments' => MediaResource::collection(
                 $this->whenLoaded('media')
             ),
-            // 'attachments_count' => $this->whenCounted('media'),
             'attachments_count' => $this->when(
                 $this->relationLoaded('media') || array_key_exists('media_count', $this->resource->getAttributes()),
                 fn() => $this->relationLoaded('media') ? $this->media->count() : $this->media_count
             ),
+            'reactions' => $this->when($this->relationLoaded('reactions'), function () use ($currentUserId) {
+                $userReaction = $this->reactions->firstWhere('user_id', $currentUserId);
+
+                return [
+                    'my_reaction' => $userReaction ? $userReaction->reaction : null,
+                    'counts' => $this->reactions
+                        ->groupBy('reaction')
+                        ->map(fn($group) => $group->count())
+                        ->toArray(),
+                ];
+            }),
         ];
     }
 }

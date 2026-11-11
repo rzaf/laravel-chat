@@ -7,6 +7,7 @@ use App\Events\NewPrivateMessage;
 use App\Http\Controllers\Concerns\ChecksChatAccess;
 use App\Http\Resources\MessageResource;
 use App\Http\Resources\MediaResource;
+use App\Http\Resources\UserResource;
 use App\Models\Chat;
 use App\Models\ChatMembers;
 use App\Models\ChatUserSetting;
@@ -102,6 +103,7 @@ class MessageController extends Controller
             },
             'forwardedFromMessage.sender.profilePhoto',
             'forwardedFromMessage.chat.profilePhoto',
+            'reactions:message_id,user_id,reaction',
         ];
 
         if ($chat->type !== 'direct') {
@@ -561,6 +563,76 @@ class MessageController extends Controller
         ]);
         return response()->json([
             'message' => 'Message deleted for you.',
+        ], 200);
+    }
+
+    /**
+     * Add or update a user's reaction on a message (Toggle behavior).
+     * 
+     * @bodyParam reaction string required The emoji/identifier (max 32 chars). Example: 👍
+     */
+    public function addReaction(Request $req, string $id)
+    {
+        $currentUser = $req->user();
+
+        $validated = $req->validate([
+            'reaction' => ['required','string','max:32'],
+        ]);
+
+        $message = Message::with('chat')->findOrFail($id);
+
+        $isMember = $this->memberOf($currentUser->id, $message->chat_id);
+        abort_if(!$isMember, 403, 'Unauthorized');
+
+        $existingReaction = \App\Models\MessageReaction::where('message_id', $message->id)
+            ->where('user_id', $currentUser->id)
+            ->first();
+
+        if ($existingReaction) {
+            if ($existingReaction->reaction === $validated['reaction']) {
+                // Toggling off: if user clicks the exact same reaction again, remove it
+                $existingReaction->delete();
+            } else {
+                // Switching reaction: update existing record to the new emoji
+                $existingReaction->update(['reaction' => $validated['reaction']]);
+            }
+        } else {
+            // First reaction on this message by the user
+            \App\Models\MessageReaction::create([
+                'message_id' => $message->id,
+                'user_id' => $currentUser->id,
+                'reaction' => $validated['reaction'],
+            ]);
+        }
+
+        $message->load($this->messageRelations($message->chat));
+
+        return response()->json([
+            'message' => 'Reaction updated successfully',
+            'data' => new MessageResource($message),
+        ], 200);
+    }
+
+    /**
+     * Remove the current user's reaction from a message.
+     */
+    public function removeReaction(Request $req, string $id)
+    {
+        $currentUser = $req->user();
+        $message = Message::with('chat')->findOrFail($id);
+
+        $isMember = $this->memberOf($currentUser->id, $message->chat_id);
+        abort_if(!$isMember, 403, 'Unauthorized');
+
+        \App\Models\MessageReaction::where('message_id', $message->id)
+            ->where('user_id', $currentUser->id)
+            ->delete();
+
+        $message->load($this->messageRelations($message->chat));
+
+        return response()->json([
+            'message' => 'Reaction removed successfully',
+            'data' => new MessageResource($message),
         ], 200);
     }
 }

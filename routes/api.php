@@ -55,6 +55,10 @@ Route::group(['prefix' => 'messages', 'middleware' => ['auth:sanctum']], functio
     Route::put('/{id}', [MessageController::class, 'update']);
     Route::delete('/{id}', [MessageController::class, 'destroy']);
     Route::put('/{id}/read', [MessageController::class, 'markAsReadMessage']);
+
+    Route::post('/{id}/reactions', [MessageController::class, 'addReaction']);
+    Route::delete('/{id}/reactions', [MessageController::class, 'removeReaction']);
+    Route::get('/{id}/reactions/users', [MessageController::class, 'reactionUsers']);
 });
 
 Route::group(['prefix' => 'chats', 'middleware' => ['auth:sanctum']], function () {
