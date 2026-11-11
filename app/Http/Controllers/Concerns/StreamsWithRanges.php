@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Concerns;
 
+use App\Models\Media;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -17,13 +18,35 @@ trait StreamsWithRanges
 {
     protected function rangedResponse(
         Request $request,
-        string $absolutePath,
-        string $mime,
+        Media $media,
+        bool $isThumbnail,
         int $maxChunk = 2 * 1024 * 1024,
     ): Response {
+        $relativePath = $isThumbnail ? $media->thumb_path : $media->path;
+        abort_unless($relativePath, 404, 'File not found !');
+
+        $absolutePath = \Storage::disk($media->disk)->path($relativePath);
         abort_unless(is_file($absolutePath), 404);
 
         $size = filesize($absolutePath);
+
+        // Differentiate ETag for thumbnails vs original files
+        $etagToken = $isThumbnail
+            ? ($media->checksum ? $media->checksum . '-thumb' : md5_file($absolutePath))
+            : ($media->checksum ?? md5_file($absolutePath));
+        $etag = '"' . $etagToken . '"';
+
+        if ($request->header('If-None-Match') === $etag) {
+            return response('', 304);
+        }
+        $mime = $media->mime_type;
+        if ($isThumbnail) {
+            $mime = $media->thumb_mime_type;
+            if ($mime == null && (str_starts_with($media->mime_type, 'video/') || str_starts_with($media->mime_type, 'audio/'))) {
+                $mime = 'image/jpeg';
+            }
+        }
+
         $start = 0;
         $end = $size - 1;
         $status = 200;
@@ -31,8 +54,8 @@ trait StreamsWithRanges
         $headers = [
             'Content-Type' => $mime,
             'Accept-Ranges' => 'bytes',
-            'Cache-Control' => 'private, max-age=3600',
-            'Last-Modified' => gmdate('D, d M Y H:i:s', filemtime($absolutePath)) . ' GMT',
+            'Cache-Control' => 'private, max-age=31536000, immutable',
+            'ETag' => $etag,
             'Content-Disposition' => 'inline',
         ];
 
@@ -41,7 +64,6 @@ trait StreamsWithRanges
             preg_match('/^bytes=(\d*)-(\d*)$/', trim((string) $request->header('Range')), $m)
             && ($m[1] !== '' || $m[2] !== '')
         ) {
-
             if ($m[1] === '') {
                 $start = max(0, $size - (int) $m[2]);
             } else {
@@ -55,10 +77,7 @@ trait StreamsWithRanges
                 return response('', 416, ['Content-Range' => "bytes */{$size}"]);
             }
 
-            // the important part: answer with at most $maxChunk bytes.
-            // A server may legally return less than requested; the browser just asks again.
             $end = min($end, $start + $maxChunk - 1);
-
             $status = 206;
             $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
         }

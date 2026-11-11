@@ -35,6 +35,7 @@ class MediaService
         $duration = null;
         $mimeType = $file->getClientMimeType();
         $thumbPath = null;
+        $thumbMimeType = null;
         $blurhash = null;
 
         if (str_starts_with($mimeType, 'image/')) {
@@ -49,6 +50,7 @@ class MediaService
             $image->scaleDown(width: 100);
             $encoded = $image->encodeUsingFormat(Format::JPEG, quality: 75);
             $thumbPath = $directory . '/' . $uuidName . '_thumb';
+            $thumbMimeType = 'image/jpeg';
             Storage::disk($disk)->put($thumbPath, $encoded->toString());
         } elseif (str_starts_with($mimeType, 'video/') || str_starts_with($mimeType, 'audio/')) {
             // Trust ffprobe, not the client-supplied mime type
@@ -72,6 +74,7 @@ class MediaService
                     );
                     $thumbPath = $directory . '/' . $uuidName . '_thumb';
                     Storage::disk($disk)->put($thumbPath, $thumbBytes);
+                    $thumbMimeType = 'image/jpeg';
                 } catch (\Throwable $e) {
                     // a bad cover/frame must never fail the upload
                     report($e);
@@ -97,6 +100,7 @@ class MediaService
             'checksum' => $checksum,
             'metadata' => $metaData,
             'thumb_path' => $thumbPath,
+            'thumb_mime_type' => $thumbMimeType,
             'blurhash' => $blurhash,
         ]);
     }
@@ -117,6 +121,7 @@ class MediaService
             'checksum' => $sourceMedia->checksum,
             'metadata' => $sourceMedia->metadata,
             'thumb_path' => $sourceMedia->thumb_path, // Points to the same thumbnail path
+            'thumb_mime_type' => $sourceMedia->thumb_mime_type,
             'blurhash' => $sourceMedia->blurhash,
         ]);
     }
