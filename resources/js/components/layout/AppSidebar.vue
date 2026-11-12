@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
                     aria-label="Menu">
                     <button v-for="item in mainItems" :key="item.id" type="button" :class="itemClass"
                         @click="pick(item)">
-                        <component :is="item.icon" class="size-6 shrink-0 text-gray-500 dark:text-gray-400"
+                        <component :is="item.icon" class="size-6 shrink-0 text-gray-500 dark:text-gray-400" stroke-width="1.5px"
                             :class="item.iconClass" />
                         {{ item.label }}
                     </button>
@@ -123,8 +123,8 @@ onBeforeUnmount(() => {
                 <div class="flex flex-col gap-1 px-2 py-2 mt-auto border-t border-gray-100 dark:border-gray-700">
                     <button type="button" role="switch" :aria-checked="isDark" :class="itemClass"
                         @click="isDark = !isDark">
-                        <SunIcon v-if="isDark" class="size-6 shrink-0 stroke-gray-300" />
-                        <MoonIcon v-else class="size-6 shrink-0 stroke-gray-500" />
+                        <SunIcon v-if="isDark" class="size-6 shrink-0 stroke-gray-300" stroke-width="1.5px" />
+                        <MoonIcon v-else class="size-6 shrink-0 stroke-gray-500" stroke-width="1.5px" />
                         <span class="flex-1">Dark mode</span>
                         <span class="relative inline-flex h-6 transition-colors rounded-full w-10 shrink-0"
                             :class="isDark ? 'bg-blue-600' : 'bg-gray-300'" aria-hidden="true">
