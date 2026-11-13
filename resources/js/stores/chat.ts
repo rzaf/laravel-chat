@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import { getChatList, getPublicChat } from '@/api';
+import { getChatBySlug, getChatList } from '@/api';
 import type { Chat, ChatType, Message, MessageType } from '@/types';
 import useAuthStore from '@/stores/auth';
 
@@ -75,23 +75,48 @@ export default defineStore('chat', () => {
 
         let resolved = { slug } as Chat;
         try {
-            const pub = await getPublicChat(slug);
-            if (pub.is_member) {
+            const res = await getChatBySlug(slug);
+            console.log('chat store selectChatBySlug request getChatBySlug res: ', res);
+
+            if (res.chat?.is_member) {
                 // joined elsewhere (another tab / device): the list is just stale
                 await loadChatList();
                 resolved = chatList.value?.find((c) => c.slug === slug) ?? resolved;
             } else {
-                resolved = {
-                    id: pub.id,
-                    slug: pub.slug,
-                    name: pub.name,
-                    type: pub.type,
-                    description: pub.description,
-                    members_count: pub.members_count,
-                    profile_photo: pub.profile_photo ?? undefined,
-                    is_member: false,
-                    can_send: false,
-                } as Chat;
+                if (res.chat == null && res.user != null) { // a user that we are not in chat with
+                    resolved = {
+                        slug: res.user?.username,
+                        name: res.user?.name,
+                        type: 'direct',
+                        description: res.user?.bio,
+                        profile_photo: res.user?.profile_photo ?? undefined,
+                        is_member: true,
+                    } as Chat;
+                } else if (res.chat != null) { // 
+                    resolved = {
+                        id: res.chat.id,
+                        slug: res.chat.slug,
+                        name: res.chat.name,
+                        type: res.chat.type,
+                        description: res.chat.description,
+                        members_count: res.chat.members_count,
+                        profile_photo: res.chat.profile_photo ?? undefined,
+                        is_member: false,
+                        can_send: false,
+                    } as Chat;
+                } else {
+                    resolved = {
+                        id: res.publicChat?.id,
+                        slug: res.publicChat?.slug,
+                        name: res.publicChat?.name,
+                        type: res.publicChat?.type,
+                        description: res.publicChat?.description,
+                        members_count: res.publicChat?.members_count,
+                        profile_photo: res.publicChat?.profile_photo ?? undefined,
+                        is_member: res.publicChat?.is_member ?? undefined,
+                        can_send: false,
+                    } as Chat;
+                }
             }
         } catch {
             // 404 -> not a public chat: treat as a direct-chat placeholder
@@ -156,6 +181,7 @@ export default defineStore('chat', () => {
         directUserId: number | null = null,
         type: ChatType = 'direct',
         lastMessageType: MessageType = 'normal',
+        profilePhoto: string | null,
     ) {
         if (!chatList.value) {
             return;
@@ -176,6 +202,7 @@ export default defineStore('chat', () => {
             created_at: now,
             unseen_messages_count: 0,
             type,
+            profile_photo: profilePhoto,
         });
         reorder();
     }

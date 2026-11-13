@@ -326,6 +326,8 @@ async function handleSend(): Promise<void> {
                 content,
                 props.chat.direct_user_id,
                 chatType.value,
+                'normal',
+                message.chat?.profile_photo || null,
             );
             chatStore.selectChatBySlug(slug);
         }
@@ -374,6 +376,7 @@ async function handleSendRecording(file: File, kind: 'audio' | 'video', onResult
                 props.chat.direct_user_id,
                 chatType.value,
                 kind,
+                message.chat?.profile_photo || null,
             );
             chatStore.selectChatBySlug(slug);
         }

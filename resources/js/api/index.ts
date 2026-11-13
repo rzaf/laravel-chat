@@ -32,8 +32,8 @@ export async function getChatList(): Promise<Chat[]> {
 }
 
 
-export async function getChatBySlug(slug: string): Promise<{ chat: Chat; user: User }> {
-    const { data } = await apiClient.get<{ chat: Chat; user: User }>('/api/chats/' + slug);
+export async function getChatBySlug(slug: string): Promise<{ chat: Chat | null; user: User | null; publicChat: PublicChat | null }> {
+    const { data } = await apiClient.get<{ chat: Chat; user: User; publicChat: PublicChat }>('/api/chats/' + slug);
     return data ?? [];
 }
 

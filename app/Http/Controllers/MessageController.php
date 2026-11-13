@@ -242,6 +242,8 @@ class MessageController extends Controller
             $message->chat->name = $message->chat->name ?? $peer->name;
             $message->chat->slug = $message->chat->slug ?? $peer->username;
             $message->chat->direct_user_id = $peer->id;
+            // Attach the other user's profile photo to the chat resource
+            $message->chat->setRelation('profilePhoto', $peer->profilePhoto);
         }
 
         try {
@@ -302,7 +304,7 @@ class MessageController extends Controller
     public function storeDirectMessage(Request $req, string $username, MediaService $mediaService)
     {
         $currentUser = $req->user();
-        $user = User::firstWhere(['username' => $username]);
+        $user = User::query()->where(['username' => $username])->with('profilePhoto')->first();
         abort_if($user == null, 404, 'user not found');
         abort_if($currentUser->username == $username, 400, 'cant message yourself');
 
@@ -576,7 +578,7 @@ class MessageController extends Controller
         $currentUser = $req->user();
 
         $validated = $req->validate([
-            'reaction' => ['required','string','max:32'],
+            'reaction' => ['required', 'string', 'max:32'],
         ]);
 
         $message = Message::with('chat')->findOrFail($id);

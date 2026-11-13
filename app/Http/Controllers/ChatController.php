@@ -268,7 +268,7 @@ class ChatController extends Controller
 
 
     /**
-     * get chat
+     * get chat (get chats that user is member of)
      * 
      * @urlParam slug string Example: test
      * 
@@ -288,10 +288,17 @@ class ChatController extends Controller
 
         // only direct chats have a "peer" user to describe
         $user = (($chat->type ?? 'direct') != 'direct') ? null : User::where('username', $slug)->with('profilePhoto')->first();
-
+        $publicChat = null;
+        if (!$chat && !$user) {
+            $publicChat = $this->publicChatQuery($req->user()->id)
+                ->where('chats.slug', $slug)
+                ->first();
+            $publicChat = $this->formatPublicChat($publicChat);
+        }
         return response()->json([
             'chat' => $chat,
             'user' => $user ? new UserResource($user) : null,
+            'publicChat' => $publicChat,
         ], 200);
     }
 
@@ -539,7 +546,15 @@ class ChatController extends Controller
             ->first();
         abort_if(!$chat, 404, 'chat not found');
 
-        return response()->json(['chat' => $this->formatPublicChat($chat)]);
+        // return response()->json(['chat' => $this->formatPublicChat($chat)]);
+
+        // only direct chats have a "peer" user to describe
+        $user = (($chat->type ?? 'direct') != 'direct') ? null : User::where('username', $slug)->with('profilePhoto')->first();
+
+        return response()->json([
+            'chat' => $chat,
+            'user' => $user ? new UserResource($user) : null,
+        ], 200);
     }
 
     /** Join a public group / channel. Idempotent. */

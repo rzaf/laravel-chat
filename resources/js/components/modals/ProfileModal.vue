@@ -842,13 +842,13 @@ async function handleLeaveGroup(): Promise<void> {
 const isContact = computed(() => {
     const username = user.value?.username || (chat.value?.type === 'direct' ? chat.value?.slug : null);
     if (!username) return false;
-    return contactStore.contacts?.some((c) => c.user.username === username);
+    return contactStore.contacts?.some((c) => c.user?.username === username);
 });
 
 const contactItem = computed(() => {
     const username = user.value?.username || (chat.value?.type === 'direct' ? chat.value?.slug : null);
     if (!username) return null;
-    return contactStore.contacts?.find((c) => c.user.username === username) || null;
+    return contactStore.contacts?.find((c) => c.user?.username === username) || null;
 });
 
 
@@ -1527,7 +1527,7 @@ defineExpose({
                         <!-- Grouped by Month Loops -->
                         <div v-for="group in groupedChatMedia" :key="group.monthKey" class="space-y-2">
                             <h4
-                                class="z-10 py-1 text-xs font-semibold text-gray-500 bg-gray-50/80 dark:bg-gray-900/80 px-1">
+                                class="z-10 py-1 text-xs font-semibold text-gray-500 dark:text-gray-400 px-1">
                                 {{ group.monthKey }}
                             </h4>
 
