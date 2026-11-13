@@ -28,7 +28,7 @@ class ContactController extends Controller
      */
     public function index(Request $req)
     {
-        $contacts = $req->user()->contacts()
+        $contacts = $req->user()->contacts()->whereHas('user')
             ->with([
                 'user',
                 'user.profilePhoto'

@@ -79,7 +79,7 @@ class ChatMemberController extends Controller
 
         $this->memberOrFail($req->user()->id, $chat->id);
 
-        $contactUserIds = $req->user()->contacts()
+        $contactUserIds = $req->user()->contacts() // should do the ->whereHas('user') or not ???
             ->pluck('user_id');
 
         $usernames = User::query()

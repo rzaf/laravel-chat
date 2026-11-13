@@ -5,6 +5,8 @@ import { useRoute, useRouter } from 'vue-router';
 import useAuthStore from '@/stores/auth';
 import useChatStore from '@/stores/chat';
 import { useChatChannel } from '@/realtime/useChatChannel';
+import useContactStore from '@/stores/contact';
+import { useAudioStore } from '@/stores/audio';
 import { disconnectEcho } from '@/realtime/echo';
 import ChatList from '@/components/chat/ChatList.vue';
 import ChatWindow from '@/components/chat/ChatWindow.vue';
@@ -24,6 +26,8 @@ const router = useRouter();
 
 const auth = useAuthStore();
 const chat = useChatStore();
+const contactStore = useContactStore();
+const audioStore = useAudioStore();
 
 const showSidebar = ref(false);
 const pageNotFound = ref(route.name === 'notFound');
@@ -59,6 +63,9 @@ watch(
 async function handleLogout() {
     disconnectEcho();
     auth.logout();
+    contactStore.clear();
+    chat.clear();
+    audioStore.stop();
     const failure = await router.replace({ name: 'login' });
     console.log('logout nav result:', failure, router.currentRoute.value.fullPath);
 }
